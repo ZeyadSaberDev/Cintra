@@ -1368,8 +1368,23 @@ html[data-theme="dark"] .bayan-home-header {
   .bayan-header-floating-action { width: 32px; height: 32px; }
   .bayan-language-selector { height: 34px; padding-inline: 2px; }
   .bayan-language-selector > svg { margin-inline: 3px; }
-  .bayan-header-model .bayan-model-trigger { max-width: 42vw; padding-inline: 7px; }
-  .bayan-header-model .bayan-model-trigger > span:first-child { max-width: 72px; }
+  .bayan-header-model { max-width: min(38vw, 148px); }
+  .bayan-header-model .bayan-model-trigger { max-width: 100%; padding-inline: 7px; }
+  .bayan-header-model .bayan-model-name { display: none; }
+  .bayan-header-model .bayan-model-compact-name { display: inline; }
+}
+@media (max-width: 360px) {
+  .bayan-header-actions .bayan-language-selector { display: none; }
+  .bayan-header-model { max-width: min(44vw, 132px); }
+}
+@media (max-width: 460px) {
+  .bayan-header-actions .bayan-language-selector > svg { display: none; }
+  .bayan-header-actions .bayan-language-selector button {
+    min-width: 28px;
+    height: 26px;
+    padding-inline: 4px;
+    font-size: 10px;
+  }
 }
 
 .cintra-image-skeleton {
@@ -3083,18 +3098,26 @@ html[data-theme="auto"] .bayan-entry-mark { box-shadow: 0 8px 24px color-mix(in 
     -webkit-overflow-scrolling: touch;
   }
   .bayan-chat-input-footer {
-    padding: 4px 6px max(5px, env(safe-area-inset-bottom));
+    padding: 2px 6px max(3px, env(safe-area-inset-bottom));
+  }
+  .bayan-chat-input-footer .bayan-input-shell {
+    padding: 0;
+  }
+  .bayan-chat-input-footer .bayan-input-shell > p {
+    margin-top: 3px;
+    font-size: 9px;
+    line-height: 1.3;
   }
   .bayan-chat-input-footer .bayan-chat-composer {
     min-height: 0;
-    gap: 4px;
-    padding: 5px 8px;
+    gap: 2px;
+    padding: 4px 8px;
     border-radius: 19px;
   }
   .bayan-chat-input-footer .bayan-composer-text {
-    min-height: 32px;
+    min-height: 30px;
     max-height: 120px;
-    padding-block: 4px;
+    padding-block: 3px;
     line-height: 1.45;
   }
   .bayan-chat-input-footer .bayan-composer-toolbar > div:first-child > div > button,
@@ -3103,8 +3126,8 @@ html[data-theme="auto"] .bayan-entry-mark { box-shadow: 0 8px 24px color-mix(in 
     height: 30px;
   }
   .bayan-chat-input-footer .bayan-composer-send {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
   }
   .bayan-model-name { display: none; }
   .bayan-model-compact-name { display: inline; }
@@ -3113,6 +3136,12 @@ html[data-theme="auto"] .bayan-entry-mark { box-shadow: 0 8px 24px color-mix(in 
     min-height: 0;
     gap: 4px;
     padding: 7px 9px;
+  }
+  @media (max-width: 767.98px) {
+    .bayan-header { height: 52px; }
+    .bayan-header-actions .bayan-header-width-toggle,
+    .bayan-header-actions .bayan-header-share { display: none; }
+    .bayan-conversation-main { gap: 4px !important; }
   }
   .bayan-home-composer .bayan-composer-text {
     min-height: 32px;

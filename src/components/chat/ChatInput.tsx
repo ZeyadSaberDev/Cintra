@@ -662,7 +662,7 @@ export function ChatInput({
           title={currentLang === 'ar' ? 'Enter للإرسال · Shift+Enter لسطر جديد' : 'Enter to send · Shift+Enter for a new line'}
           placeholder={t('inputPlaceholder')}
           rows={1}
-          className="bayan-composer-text min-h-10 w-full min-w-0 resize-none overflow-y-hidden border-0 bg-transparent px-1 py-2 text-sm leading-6 text-neutral-900 outline-none placeholder:text-neutral-400 focus-visible:ring-0"
+          className="bayan-composer-text min-h-8 w-full min-w-0 resize-none overflow-y-hidden border-0 bg-transparent px-1 py-2 text-sm leading-6 text-neutral-900 outline-none placeholder:text-neutral-400 focus-visible:ring-0"
         />
         <input ref={fileRef} type="file" multiple accept={ACCEPTED_FILES} disabled={disabled || uploadStatus === 'uploading'} className="hidden" onChange={(e) => addFiles(Array.from(e.target.files || []))} />
         <div className="bayan-composer-toolbar flex w-full items-center justify-between gap-2 px-0.5">

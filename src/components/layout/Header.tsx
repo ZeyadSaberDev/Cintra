@@ -38,7 +38,7 @@ export function Header({ selectedModel, onSelectModel, onShare, onToggleSidebar,
           </span>
         )}
       </div>
-      <div className="bayan-header-model absolute left-1/2 min-w-0 -translate-x-1/2">
+      <div className="bayan-header-model absolute left-1/2 min-w-0">
         <ModelSelector selectedModel={selectedModel} onSelectModel={onSelectModel} />
       </div>
       <div className="bayan-header-actions absolute end-3 flex items-center gap-1.5 sm:end-6 sm:gap-2">
