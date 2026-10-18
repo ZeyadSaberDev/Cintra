@@ -6,6 +6,13 @@ import { getModelCost } from '../../../lib/config/modelCosts';
 import { getModelFamily, groupModelsByFamily } from '../../lib/modelGrouping';
 import { useLanguage } from '../../contexts/LanguageContext';
 
+const compactModelNames: Record<string, string> = {
+  'cintra-core-v1': '🚀 Core',
+  'cintra-research': '🔍 Research',
+  'cintra-creative': '🎨 Creative',
+  'cintra-analyst': '💼 Analyst',
+};
+
 interface ModelSelectorProps {
   selectedModel: string;
   onSelectModel: (modelId: string) => void;
@@ -102,6 +109,7 @@ export function ModelSelector({ selectedModel, onSelectModel }: ModelSelectorPro
 
   const currentModelObj = models.find((m) => m.id === selectedModel);
   const displayName = currentModelObj ? currentModelObj.name : selectedModel || '🚀 Cintra Core v1';
+  const compactDisplayName = compactModelNames[selectedModel] || displayName;
   const currentCost = getModelCost(selectedModel);
 
   return (
@@ -115,7 +123,8 @@ export function ModelSelector({ selectedModel, onSelectModel }: ModelSelectorPro
         title={`${displayName} · ${t(`${currentCost.tier.toLowerCase()}Tier`)} · ${t('modelCostTooltip', { credits: currentCost.credits })}`}
         className="bayan-model-trigger flex h-8 max-w-[min(46vw,290px)] min-w-0 items-center gap-1.5 rounded-full border border-[#e5e5e5] bg-white px-2 text-xs font-medium text-neutral-800 shadow-xs transition-colors hover:bg-neutral-50 sm:max-w-[min(60vw,290px)] sm:px-3"
       >
-        <span className="min-w-0 truncate max-w-[130px] sm:max-w-[200px]">{displayName}</span>
+        <span className="bayan-model-name min-w-0 truncate max-w-[130px] sm:max-w-[200px]">{displayName}</span>
+        <span className="bayan-model-compact-name hidden shrink-0">{compactDisplayName}</span>
         <span className={`bayan-model-cost flex shrink-0 items-center gap-1 ${currentCost.colorClass}`}>
           <span aria-hidden="true">{currentCost.icon}</span>
           <span className="bayan-model-cost-label">{t(`${currentCost.tier.toLowerCase()}Tier`)}</span>

@@ -3048,3 +3048,85 @@ html[data-theme="auto"] .bayan-entry-mark { box-shadow: 0 8px 24px color-mix(in 
   .bayan-accent-swatch,
   .bayan-sidebar .bayan-account-menu { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
+
+@media (max-width: 767.98px) {
+  html,
+  body,
+  #root {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  html,
+  body {
+    height: 100dvh;
+    overscroll-behavior: none;
+  }
+  #root,
+  .bayan-workspace {
+    min-width: 0;
+    min-height: 0;
+    height: 100dvh;
+  }
+  .bayan-workspace {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+  }
+  .bayan-main-viewport { min-height: 0; height: 100%; }
+  .bayan-conversation-main { min-height: 0; overscroll-behavior: none; }
+  .bayan-conversation-scroll {
+    min-height: 0;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .bayan-chat-input-footer {
+    padding: 4px 6px max(5px, env(safe-area-inset-bottom));
+  }
+  .bayan-chat-input-footer .bayan-chat-composer {
+    min-height: 0;
+    gap: 4px;
+    padding: 5px 8px;
+    border-radius: 19px;
+  }
+  .bayan-chat-input-footer .bayan-composer-text {
+    min-height: 32px;
+    max-height: 120px;
+    padding-block: 4px;
+    line-height: 1.45;
+  }
+  .bayan-chat-input-footer .bayan-composer-toolbar > div:first-child > div > button,
+  .bayan-chat-input-footer .bayan-composer-toolbar > div:first-child > button {
+    width: 30px;
+    height: 30px;
+  }
+  .bayan-chat-input-footer .bayan-composer-send {
+    width: 32px;
+    height: 32px;
+  }
+  .bayan-model-name { display: none; }
+  .bayan-model-compact-name { display: inline; }
+  .bayan-home-screen { padding-block: 16px; }
+  .bayan-home-composer {
+    min-height: 0;
+    gap: 4px;
+    padding: 7px 9px;
+  }
+  .bayan-home-composer .bayan-composer-text {
+    min-height: 32px;
+    max-height: 120px;
+    padding-block: 4px;
+    line-height: 1.45;
+  }
+  .bayan-home-composer .bayan-composer-toolbar > div:first-child > div > button,
+  .bayan-home-composer .bayan-composer-toolbar > div:first-child > button {
+    width: 30px;
+    height: 30px;
+  }
+  .bayan-home-composer .bayan-composer-send {
+    width: 32px;
+    height: 32px;
+  }
+}

@@ -1483,7 +1483,7 @@ function Workspace() {
             </section>
           ) : (
             <>
-          <section className={`flex flex-1 min-h-0 flex-col px-4 pb-6 ${messages.length >= 100 ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          <section className="bayan-conversation-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-6">
           {loadingChat ? (
               <div className="w-full max-w-3xl mx-auto px-4 py-8 flex-1 space-y-5" role="status" aria-label="Loading conversation">
                 <div className="flex justify-start"><div className="h-12 w-2/3 rounded-2xl bg-neutral-100 animate-pulse" /></div>
@@ -1520,7 +1520,7 @@ function Workspace() {
             />
           )}
           </section>
-          <footer className="sticky bottom-0 z-20 w-full shrink-0 bg-transparent px-2 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <footer className="bayan-chat-input-footer z-20 w-full shrink-0 bg-transparent px-2 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             {chatInput}
           </footer>
             </>

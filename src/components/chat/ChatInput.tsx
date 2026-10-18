@@ -132,9 +132,10 @@ export function ChatInput({
   useEffect(() => {
     const composer = composerRef.current;
     if (!composer) return;
+    const maxHeight = Number.parseFloat(window.getComputedStyle(composer).maxHeight) || 200;
     composer.style.height = 'auto';
-    composer.style.height = `${Math.min(composer.scrollHeight, 200)}px`;
-    composer.style.overflowY = composer.scrollHeight > 200 ? 'auto' : 'hidden';
+    composer.style.height = `${Math.min(composer.scrollHeight, maxHeight)}px`;
+    composer.style.overflowY = composer.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [text]);
 
   useEffect(() => {
