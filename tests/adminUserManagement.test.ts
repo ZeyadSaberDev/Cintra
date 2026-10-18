@@ -8,12 +8,20 @@ const testDirectory = mkdtempSync(path.join(os.tmpdir(), 'cintra-admin-users-'))
 process.env.LOCAL_DATA_DIR = testDirectory;
 process.env.LOCAL_DB_PATH = path.join(testDirectory, 'test.sqlite');
 
-const { createEmailPasswordAccount, signInWithEmailPassword, authenticateSession, updateLocalAccountCredentials, deleteAuthUser } =
+const { createEmailPasswordAccount, signInWithEmailPassword, authenticateSession, updateLocalAccountCredentials, deleteAuthUser, createPasswordFingerprint, matchesPasswordFingerprint } =
   await import('../lib/auth/local.js');
 const { initLocalDatabase, closeLocalDatabase } = await import('../lib/db/sqlite.js');
 const { conversationRepo, messageRepo, userRepo } = await import('../lib/db/index.js');
 const { LocalRepository } = await import('../lib/db/repository.js');
 const { downloadLocalFile, uploadLocalFile } = await import('../lib/storage/local.js');
+
+test('bootstrap password fingerprints detect rotations without storing the configured password', () => {
+  const password = 'Bootstrap-password-123';
+  const fingerprint = createPasswordFingerprint(password);
+  assert.notEqual(fingerprint, password);
+  assert.equal(matchesPasswordFingerprint(password, fingerprint), true);
+  assert.equal(matchesPasswordFingerprint('different-password-456', fingerprint), false);
+});
 
 test('account updates use bcrypt, preserve the current admin session, and revoke other sessions', async () => {
   await initLocalDatabase();

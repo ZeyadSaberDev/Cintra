@@ -33,7 +33,7 @@ Copy `.env.example` to `.env` and configure the server-only values:
 | `APP_URL` | Local development origin or the deployed public HTTPS origin |
 | `ADMIN_ACCESS_KEY` | Random secret of at least 32 characters used when rotating the protected-action key |
 | `ADMIN_SESSION_SECRET` | Independent random secret used to sign email-code challenges |
-| `ADMIN_EMAIL`, `ADMIN_BOOTSTRAP_PASSWORD` | Optional first-admin seed; set both before startup. The password must be 16-100 characters and at most 72 UTF-8 bytes; the seed will not promote an existing account based on email alone |
+| `ADMIN_EMAIL`, `ADMIN_BOOTSTRAP_PASSWORD` | Optional first-admin bootstrap or password rotation; set both in the hosting provider before startup. The password must be 12-100 characters and at most 72 UTF-8 bytes; an existing account is updated only when it already has the admin role |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Optional SMTP configuration for email sign-in codes and password-reset links |
 | `FREELLMAPI_API_KEY` | FreeLLMAPI server-side bearer token; do not put it in frontend environment variables |
 | `FREELLMAPI_BASE_URL` | OpenAI-compatible API base URL; defaults to `https://freellmapi-zeyad.up.railway.app/v1` |
@@ -57,7 +57,7 @@ npm run dev
 
 Before starting the server, set `ADMIN_ACCESS_KEY` and `ADMIN_SESSION_SECRET` in `.env`. For local development, `APP_URL=http://localhost:3000` is accepted. On production, configure `APP_URL` as the public HTTPS origin.
 
-To seed a first admin, set both `ADMIN_EMAIL` and a unique `ADMIN_BOOTSTRAP_PASSWORD` (at least 16 characters and no more than 72 UTF-8 bytes) in the ignored local `.env` file or Railway's secret variables before starting the server. Never put actual credentials in `.env.example` or source control. This value is used only when creating the initial account; later credential changes are stored as bcrypt hashes in the local auth database. The account is created only if that email does not already exist; the server will not elevate an existing account by matching its email. Alternatively, create the account first and grant it through a trusted server shell using the same `LOCAL_DATA_DIR`:
+To bootstrap an admin, set both `ADMIN_EMAIL` and a unique `ADMIN_BOOTSTRAP_PASSWORD` (at least 12 characters and no more than 72 UTF-8 bytes) in the ignored local `.env` file or the hosting provider's secret variables before starting the server. Railway does not receive your local `.env` file when you push code; configure these variables in the Railway service settings. Never put actual credentials in `.env.example` or source control. The password is hashed and stored in the local auth database. On an existing installation, changing the configured bootstrap password updates it only when `ADMIN_EMAIL` belongs to an account that already has the admin role; it never grants that role by email alone. This one-time rotation revokes the account's active sessions. Alternatively, create the account first and grant it through a trusted server shell using the same `LOCAL_DATA_DIR`:
 
 ```powershell
 npm run admin:grant -- admin@example.com

@@ -41,6 +41,14 @@ function passwordHash(password: string): string {
   return hashSync(password, 12);
 }
 
+export function createPasswordFingerprint(password: string): string {
+  return passwordHash(password);
+}
+
+export function matchesPasswordFingerprint(password: string, fingerprint: string): boolean {
+  return verifyPassword(password, fingerprint);
+}
+
 function verifyPassword(password: string, encoded: string | null): boolean {
   if (!encoded) return false;
   if (encoded.startsWith('$2')) {

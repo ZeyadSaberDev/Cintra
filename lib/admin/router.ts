@@ -2,7 +2,13 @@ import { Router, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
-import { createEmailPasswordAccount, signOutSession, updateLocalAccountCredentials } from '../auth/local.js';
+import {
+  createEmailPasswordAccount,
+  createPasswordFingerprint,
+  matchesPasswordFingerprint,
+  signOutSession,
+  updateLocalAccountCredentials,
+} from '../auth/local.js';
 import { getCleanApisConfig, setRuntimeApiOverride, setRuntimeBayanOneConfig, setRuntimeCintraModelRoutes, setRuntimeEnabledModels, setRuntimeProviderRouting, setRuntimeServiceApiRoutes } from '../ai/provider.js';
 import { getChatCompletionsUrl, getModelsUrl } from '../ai/endpoints.js';
 import { DEFAULT_SERVICE_API_ROUTES, SERVICE_API_CAPABILITIES, type ServiceApiRoutes } from '../ai/serviceApiRoutes.js';
@@ -1833,19 +1839,37 @@ export async function initializeAdminRuntimeConfig(): Promise<void> {
   const bootstrapEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
   const bootstrapAlreadyCompleted = (await setting('adminBootstrapSeeded', '0')) === '1';
-  if ((bootstrapEmail || bootstrapPassword) && !bootstrapAlreadyCompleted) {
+  if (bootstrapEmail || bootstrapPassword) {
     if (!bootstrapEmail || !bootstrapPassword) {
       console.error('Admin seed skipped: configure both ADMIN_EMAIL and ADMIN_BOOTSTRAP_PASSWORD.');
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bootstrapEmail)) {
       console.error('Admin seed skipped: ADMIN_EMAIL must be a valid email address.');
-    } else if (bootstrapPassword.length < 16 || bootstrapPassword.length > 100 || Buffer.byteLength(bootstrapPassword, 'utf8') > 72) {
-      console.error('Admin seed skipped: ADMIN_BOOTSTRAP_PASSWORD must be between 16 and 100 characters.');
+    } else if (bootstrapPassword.length < 12 || bootstrapPassword.length > 100 || Buffer.byteLength(bootstrapPassword, 'utf8') > 72) {
+      console.error('Admin seed skipped: ADMIN_BOOTSTRAP_PASSWORD must be between 12 and 100 characters and no more than 72 UTF-8 bytes.');
     } else {
       const existingBootstrapUser = await findLocalUserByEmail(bootstrapEmail);
       if (existingBootstrapUser) {
         const existingProfile = await userRepo.findByAuthId(existingBootstrapUser.$id);
-        if (existingProfile?.role === 'admin') await setSetting('adminBootstrapSeeded', '1');
-        console.warn('Admin bootstrap skipped because ADMIN_EMAIL already has an account; use the trusted admin:grant command after confirming account ownership.');
+        if (existingProfile?.role === 'admin') {
+          const configuredFingerprint = await setting('adminBootstrapPasswordFingerprint', '');
+          const passwordChanged = !configuredFingerprint
+            || !matchesPasswordFingerprint(bootstrapPassword, configuredFingerprint);
+          if (passwordChanged) {
+            await updateLocalAccountCredentials(existingBootstrapUser.$id, { password: bootstrapPassword });
+            await setSetting('adminBootstrapPasswordFingerprint', createPasswordFingerprint(bootstrapPassword));
+            console.info('Admin bootstrap password synchronized for the configured existing admin account.');
+          }
+          if (!await isAdminEmailAllowed(bootstrapEmail)) {
+            await addAdminEmail(bootstrapEmail, 'environment-bootstrap');
+          }
+          await setSetting('adminBootstrapSeeded', '1');
+        } else if (!bootstrapAlreadyCompleted) {
+          console.warn('Admin bootstrap skipped because ADMIN_EMAIL already belongs to a non-admin account; use the trusted admin:grant command after confirming account ownership.');
+        } else {
+          console.warn('Admin bootstrap could not update the configured email because it is not an existing admin account.');
+        }
+      } else if (bootstrapAlreadyCompleted) {
+        console.warn('Admin bootstrap did not create an account because setup was already completed; verify ADMIN_EMAIL matches the existing admin account.');
       } else {
         const seededAdmin = await createEmailPasswordAccount({
           email: bootstrapEmail,
@@ -1857,6 +1881,7 @@ export async function initializeAdminRuntimeConfig(): Promise<void> {
           if (!await isAdminEmailAllowed(bootstrapEmail)) {
             await addAdminEmail(bootstrapEmail, 'environment-bootstrap');
           }
+          await setSetting('adminBootstrapPasswordFingerprint', createPasswordFingerprint(bootstrapPassword));
           await setSetting('adminBootstrapSeeded', '1');
         } finally {
           await signOutSession(seededAdmin.sessionSecret);
