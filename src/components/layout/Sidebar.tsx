@@ -173,9 +173,9 @@ export function Sidebar({
       <div key={chat.id} className="relative group">
         <div
           onClick={() => onSelectChat(chat.id)}
-          className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer text-left rtl:text-right ${
+          className={`bayan-sidebar-conversation w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer text-left rtl:text-right ${
             isActive
-              ? 'bg-neutral-100 text-neutral-900 font-medium'
+              ? 'is-active bg-neutral-100 text-neutral-900 font-medium'
               : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-50'
           }`}
         >
@@ -261,14 +261,13 @@ export function Sidebar({
 
   return (
     <>
-    <aside className="bayan-sidebar w-[clamp(200px,_17.25vw,_265px)] h-screen border-r rtl:border-r-0 rtl:border-l flex flex-col justify-between shrink-0 select-none z-30">
+    <aside className="bayan-sidebar h-screen w-[clamp(240px,_18vw,_290px)] shrink-0 select-none z-30 flex flex-col justify-between border-r rtl:border-r-0 rtl:border-l">
       <div className="flex flex-col flex-1 min-h-0">
-        {/* Top Header: Logo + New Chat Button */}
-        <div className="h-[52px] px-4 flex items-center justify-between border-b">
-          <div className="flex items-center gap-2">
-            <img src="/cintra-icon.svg" alt="" aria-hidden="true" className="h-8 w-8 rounded-lg object-cover" />
-            <span className="font-bold text-base tracking-tight text-neutral-900 font-sans">
-              Cintra
+        <div className="bayan-sidebar-header flex items-center justify-between border-b">
+          <div className="bayan-sidebar-brand flex min-w-0 items-center gap-2.5" aria-label="Cintra">
+            <img src="/cintra-mark.png" alt="" aria-hidden="true" className="bayan-sidebar-mark shrink-0" />
+            <span className="bayan-sidebar-wordmark-wrap flex shrink-0 items-center justify-center">
+              <img src="/cintra-wordmark.png" alt="" aria-hidden="true" className="bayan-sidebar-wordmark" />
             </span>
           </div>
 
@@ -277,43 +276,44 @@ export function Sidebar({
             onClick={() => setSearchOpen((open) => !open)}
             title={isRtl ? 'بحث في المحادثات' : 'Search chats'}
             aria-label={isRtl ? 'بحث في المحادثات' : 'Search chats'}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors cursor-pointer"
+            className="bayan-sidebar-search-button grid h-9 w-9 shrink-0 place-items-center rounded-xl transition-colors cursor-pointer"
           >
             <SearchIcon size={18} />
           </button>
         </div>
 
-        <div className="px-2 pt-2">
+        <div className="bayan-sidebar-nav-area px-3 pt-3">
           <button
             type="button"
             onClick={onNewChat}
-            className="flex w-full items-center gap-2 rounded-xl bg-neutral-800 px-3 py-2 text-start text-sm font-medium text-neutral-100 transition-colors hover:bg-neutral-700"
+            className="bayan-sidebar-new-chat flex w-full items-center gap-2.5 rounded-xl px-3 text-start text-sm font-semibold transition-all"
           >
-            <SquarePen size={16} />
+            <SquarePen size={16} aria-hidden="true" />
             <span>{t('newChat')}</span>
           </button>
-          <nav aria-label={isRtl ? 'التنقل الرئيسي' : 'Main navigation'} className="mt-2 space-y-0.5">
-            <button type="button" onClick={() => onOpenImages?.()} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm text-neutral-200 transition-colors hover:bg-neutral-800">
+          <div className="bayan-sidebar-section-label px-3 pb-1 pt-5">{isRtl ? 'مساحة العمل' : 'Workspace'}</div>
+          <nav aria-label={isRtl ? 'التنقل الرئيسي' : 'Main navigation'} className="bayan-sidebar-nav space-y-1">
+            <button type="button" onClick={() => onOpenImages?.()} className="bayan-sidebar-nav-item flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
               <Images size={17} /><span>{isRtl ? 'الصور' : 'Images'}</span>
             </button>
-            <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm text-neutral-500">
-              <Library size={17} /><span>{isRtl ? 'المكتبة' : 'Library'}</span>
+            <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="bayan-sidebar-nav-item is-disabled flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
+              <Library size={17} /><span className="flex-1">{isRtl ? 'المكتبة' : 'Library'}</span><span className="bayan-sidebar-soon">{isRtl ? 'قريباً' : 'Soon'}</span>
             </button>
-            <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm text-neutral-500">
-              <Clock3 size={17} /><span>{isRtl ? 'المجدولة' : 'Scheduled'}</span>
+            <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="bayan-sidebar-nav-item is-disabled flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
+              <Clock3 size={17} /><span className="flex-1">{isRtl ? 'المجدولة' : 'Scheduled'}</span><span className="bayan-sidebar-soon">{isRtl ? 'قريباً' : 'Soon'}</span>
             </button>
-            <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm text-neutral-500">
-              <Puzzle size={17} /><span>{isRtl ? 'الإضافات' : 'Plugins'}</span>
+            <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="bayan-sidebar-nav-item is-disabled flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
+              <Puzzle size={17} /><span className="flex-1">{isRtl ? 'الإضافات' : 'Plugins'}</span><span className="bayan-sidebar-soon">{isRtl ? 'قريباً' : 'Soon'}</span>
             </button>
-            <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm text-neutral-500">
-              <Folder size={17} /><span>{isRtl ? 'المشاريع' : 'Projects'}</span>
+            <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="bayan-sidebar-nav-item is-disabled flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
+              <Folder size={17} /><span className="flex-1">{isRtl ? 'المشاريع' : 'Projects'}</span><span className="bayan-sidebar-soon">{isRtl ? 'قريباً' : 'Soon'}</span>
             </button>
             {onOpenAgent && (
-              <button type="button" onClick={onOpenAgent} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm text-neutral-200 transition-colors hover:bg-neutral-800">
+              <button type="button" onClick={onOpenAgent} className="bayan-sidebar-nav-item flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
                 <Code2 size={17} /><span>{isRtl ? 'سير عمل الوكلاء' : 'Agent workflows'}</span>
               </button>
             )}
-            <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-start text-sm text-neutral-200 transition-colors hover:bg-neutral-800">
+            <button type="button" onClick={onOpenSettings} className="bayan-sidebar-nav-item flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
               <MoreHorizontal size={17} /><span>{isRtl ? 'المزيد' : 'More'}</span>
             </button>
           </nav>
@@ -336,7 +336,7 @@ export function Sidebar({
 
         {/* Chat History List */}
         <div className="flex-1 overflow-y-auto px-3 pt-4 space-y-3">
-          <div className="px-2 py-1 text-[11px] font-semibold text-neutral-400">{isRtl ? 'الأخيرة' : 'Recents'}</div>
+          <div className="bayan-sidebar-history-title px-2 py-1">{isRtl ? 'الأخيرة' : 'Recents'}</div>
           {isLoading ? (
             <div className="space-y-3 px-2 py-2" aria-label={t('loadingConversationsAria')} aria-busy="true">
               {[0, 1, 2, 3].map((item) => (
@@ -345,12 +345,12 @@ export function Sidebar({
             </div>
           ) : filtered.length === 0 ? (
             /* Empty State */
-            <div className="py-12 px-2 text-center text-xs text-neutral-400">
-              <div className="w-9 h-9 rounded-xl bg-neutral-100 mx-auto mb-2 flex items-center justify-center text-neutral-400">
+            <div className="bayan-sidebar-empty-state py-12 px-2 text-center text-xs text-neutral-400">
+              <div className="bayan-sidebar-empty-icon w-10 h-10 rounded-2xl mx-auto mb-2 flex items-center justify-center">
                 <MessageSquare size={16} />
               </div>
-              <p className="font-medium text-neutral-600 mb-0.5">{t('noConversationsYet')}</p>
-              <p className="text-[11px] text-neutral-400 leading-relaxed">
+              <p className="bayan-sidebar-empty-title font-medium mb-0.5">{t('noConversationsYet')}</p>
+              <p className="text-[11px] leading-relaxed">
                 {t('startNewChatPrompt')}
               </p>
             </div>
@@ -359,7 +359,7 @@ export function Sidebar({
               {/* Pinned section */}
               {pinned.length > 0 && (
                 <div className="space-y-0.5">
-                  <div className="px-2 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider flex items-center gap-1">
+                  <div className="bayan-sidebar-history-group-title px-2 py-1 flex items-center gap-1">
                     <Pin size={10} className="fill-neutral-400" />
                     <span>{t('pinned')}</span>
                   </div>
@@ -370,7 +370,7 @@ export function Sidebar({
               {/* Today section */}
               {groups.today.length > 0 && (
                 <div className="space-y-0.5">
-                  <div className="px-2 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                  <div className="bayan-sidebar-history-group-title px-2 py-1">
                     {t('today')}
                   </div>
                   {groups.today.map(renderConvItem)}
@@ -380,7 +380,7 @@ export function Sidebar({
               {/* Yesterday section */}
               {groups.yesterday.length > 0 && (
                 <div className="space-y-0.5">
-                  <div className="px-2 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                  <div className="bayan-sidebar-history-group-title px-2 py-1">
                     {t('yesterday')}
                   </div>
                   {groups.yesterday.map(renderConvItem)}
@@ -390,7 +390,7 @@ export function Sidebar({
               {/* Previous 7 Days section */}
               {groups.previous7Days.length > 0 && (
                 <div className="space-y-0.5">
-                  <div className="px-2 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                  <div className="bayan-sidebar-history-group-title px-2 py-1">
                     {t('previous7Days')}
                   </div>
                   {groups.previous7Days.map(renderConvItem)}
@@ -400,7 +400,7 @@ export function Sidebar({
               {/* Older section */}
               {groups.older.length > 0 && (
                 <div className="space-y-0.5">
-                  <div className="px-2 py-1 text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+                  <div className="bayan-sidebar-history-group-title px-2 py-1">
                     {t('older')}
                   </div>
                   {groups.older.map(renderConvItem)}
@@ -412,7 +412,7 @@ export function Sidebar({
       </div>
 
       {/* User Menu Capsule at Bottom */}
-      <div className="p-3 border-t relative">
+      <div className="bayan-sidebar-footer relative border-t p-3">
         {!user.isGuest && (
           <div className="bayan-credit-balance mb-2 flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-[11px]">
             <span className="font-medium">
@@ -421,7 +421,7 @@ export function Sidebar({
             <span className="shrink-0 font-semibold">{user.creditBalance}</span>
           </div>
         )}
-        <div className="bayan-sidebar-account flex items-center justify-between p-1.5 rounded-xl hover:bg-neutral-100/70 transition-colors">
+        <div className="bayan-sidebar-account flex items-center justify-between rounded-xl p-2 transition-colors">
           <div className="flex items-center gap-2.5 min-w-0">
             {user.avatar ? (
               <img
@@ -457,7 +457,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenPlans}
-            className="rounded-full border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-[11px] font-semibold text-neutral-100 transition-colors hover:bg-neutral-700"
+            className="bayan-sidebar-upgrade rounded-lg px-3 py-2 text-[11px] font-semibold transition-all"
           >
             {isRtl ? 'ترقية' : 'Upgrade'}
           </button>

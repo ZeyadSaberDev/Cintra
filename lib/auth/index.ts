@@ -4,7 +4,8 @@ import { DbUser } from '../db/index.js';
 export const SignupSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters').max(60).optional().nullable(),
   email: z.string().trim().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters').max(100),
+  password: z.string().min(6, 'Password must be at least 6 characters').max(100)
+    .refine((password) => new TextEncoder().encode(password).byteLength <= 72, 'Password is too long.'),
   languagePreference: z.enum(['auto', 'ar', 'en']).optional(),
 });
 
@@ -20,7 +21,8 @@ export const ForgotPasswordSchema = z.object({
 export const ResetPasswordSchema = z.object({
   userId: z.string().min(1, 'Reset user is required'),
   token: z.string().min(1, 'Reset token is required'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(6, 'Password must be at least 6 characters')
+    .refine((password) => new TextEncoder().encode(password).byteLength <= 72, 'Password is too long.'),
 });
 
 export const UpdateProfileSchema = z.object({
@@ -57,6 +59,7 @@ export function sanitizeUser(user: DbUser) {
   const {
     authUserId: _authUserId,
     dailyMessageLimit: _dailyMessageLimit,
+    dailyMessageLimitOverride: _dailyMessageLimitOverride,
     stripeCustomerId: _stripeCustomerId,
     role: _role,
     isBanned: _isBanned,

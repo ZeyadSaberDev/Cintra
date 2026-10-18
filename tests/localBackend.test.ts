@@ -30,6 +30,7 @@ test('generates stable local database IDs for arbitrary keys', () => {
 
 test('declares indexed ownership and relationship fields for core data collections', () => {
   assert.ok(DATA_SCHEMA.User.indexes.some((index) => index.includes('authUserId')));
+  assert.equal(DATA_SCHEMA.User.fields.dailyMessageLimitOverride, 'integer');
   assert.ok(DATA_SCHEMA.Conversation.indexes.some((index) => index.includes('userId')));
   assert.ok(DATA_SCHEMA.Message.indexes.some((index) => index.includes('conversationId')));
   assert.ok(DATA_SCHEMA.Attachment.indexes.some((index) => index.includes('userId')));

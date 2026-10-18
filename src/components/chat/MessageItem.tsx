@@ -619,7 +619,7 @@ function MessageItemComponent({
   return (
     <div className="group animate-message-assistant my-5 flex w-full flex-col items-stretch" data-message-id={message.id}>
       <div className="bayan-assistant-byline mb-2 flex min-w-0 items-center gap-2 text-xs">
-        <img src="/cintra-icon.svg" alt="" aria-hidden="true" className="bayan-assistant-brand-icon h-[22px] w-[22px] shrink-0 rounded-md object-cover" />
+        <img src="/cintra-mark.png" alt="" aria-hidden="true" className="bayan-assistant-brand-icon h-[22px] w-[22px] shrink-0 rounded-md object-cover" />
         <span className="bayan-assistant-brand-name shrink-0 font-semibold">Cintra</span>
         {message.isPriorHistory && <span className="ms-1 truncate text-[11px] text-neutral-500">{t('historyBeforeEdit')}</span>}
       </div>
@@ -667,24 +667,40 @@ function MessageItemComponent({
           )}
           {message.isStreaming && !message.content ? (
             message.id.startsWith('image_pending_') ? (
-              <div className="cintra-image-skeleton" role="status" aria-label={currentLang === 'ar' ? 'جارٍ إنشاء الصورة' : 'Generating image'}>
-                <div className="cintra-image-skeleton-shimmer" />
-                  <div className="mt-3 space-y-2 text-xs text-neutral-500">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-2">
-                        <span className="bayan-response-dots" aria-hidden="true"><i /><i /><i /></span>
-                        {currentLang === 'ar' ? 'يُنشئ Cintra صورتك...' : 'Cintra is creating your image…'}
-                      </span>
-                      <span className="font-medium tabular-nums">{Math.min(90, message.imageProgress || 5)}% · {currentLang === 'ar' ? 'تقديري' : 'estimated'}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200/80">
-                      <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-[width] duration-500" style={{ width: `${Math.min(90, message.imageProgress || 5)}%` }} />
-                    </div>
+              <div
+                className="cintra-image-skeleton"
+                role="status"
+                aria-label={currentLang === 'ar' ? 'جارٍ إنشاء الصورة' : 'Generating image'}
+              >
+                <div className="cintra-image-progress-preview">
+                  <div className="cintra-image-progress-heading">
+                    <span className="cintra-image-progress-indicator" aria-hidden="true" />
+                    <span>{currentLang === 'ar' ? 'جارٍ تجهيز المسودة الأولى' : 'Making the first draft'}</span>
                   </div>
+                  <div className="cintra-image-progress-dots" aria-hidden="true">
+                    <div
+                      className="cintra-image-progress-dots-fill"
+                      style={{ width: `${Math.min(90, message.imageProgress || 5)}%` }}
+                    />
+                  </div>
+                  <div
+                    className="cintra-image-progress-badge"
+                    role="progressbar"
+                    aria-label={currentLang === 'ar' ? 'تقدم تقديري لإنشاء الصورة' : 'Estimated image generation progress'}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.min(90, message.imageProgress || 5)}
+                  >
+                    {Math.min(90, message.imageProgress || 5)}%
+                  </div>
+                </div>
+                <p className="cintra-image-progress-note">
+                  {currentLang === 'ar' ? 'يعمل Cintra على إنشاء صورتك…' : 'Cintra is bringing your image to life…'}
+                </p>
               </div>
             ) : (
               <div className="bayan-response-status flex items-center gap-2 py-2 text-xs" role="status" aria-label={isThinking ? t('thinking') : t('generating')}>
-                <img src="/cintra-icon.svg" alt="" aria-hidden="true" className="h-6 w-6 animate-pulse rounded-md object-cover" />
+                <img src="/cintra-mark.png" alt="" aria-hidden="true" className="h-6 w-6 animate-pulse rounded-md object-cover" />
                 <span className="bayan-generating-label font-medium">
                   {isThinking ? t('thinking') : t('generating')}
                 </span>

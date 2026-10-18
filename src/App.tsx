@@ -15,7 +15,7 @@ import { SharedConversation } from './components/chat/SharedConversation';
 import { HomeTaskDialog, type HomeTaskMode } from './components/chat/HomeTaskDialog';
 import { ArtifactPanel } from './components/chat/ArtifactPanel';
 import { type ChatMessageDisplay, type FeedbackRating, type MessageAttachment } from './components/chat/MessageItem';
-import { Sparkles, RefreshCw, Image as ImageIcon, PenLine, Globe2, Menu } from 'lucide-react';
+import { Sparkles, RefreshCw, Image as ImageIcon, PenLine, Globe2, Menu, ArrowRight, Sun, Settings as SettingsIcon } from 'lucide-react';
 import { shouldUseThinkingMode } from '../lib/chat/complexity';
 import imageCompression from 'browser-image-compression';
 import { AgentPage } from './components/agent/AgentPage';
@@ -104,9 +104,7 @@ function Workspace() {
   });
   const [defaultModel, setDefaultModel] = useState<string>('cintra-core-v1');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
-    const saved = localStorage.getItem('sidebarOpen');
-    if (window.matchMedia('(max-width: 767px)').matches) return false;
-    return saved === null ? true : saved === 'true';
+    return !window.matchMedia('(max-width: 767px)').matches;
   });
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(() => (
     localStorage.getItem('bayan_thinking_mode') === 'true'
@@ -768,7 +766,10 @@ function Workspace() {
       requestStage = 'chat';
       const res = await fetch('/api/chat/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
         body: JSON.stringify({
           conversationId: activeChatId,
           message: messageText,
@@ -1151,7 +1152,7 @@ function Workspace() {
       <div className="bayan-entry-screen w-screen h-screen flex flex-col items-center justify-center">
         <div className="bayan-entry-brand" role="status" aria-label="Loading Cintra">
           <div className="bayan-entry-mark">
-            <img src="/cintra-icon.svg" alt="" aria-hidden="true" />
+            <img src="/cintra-mark.png" alt="" aria-hidden="true" />
             <span />
           </div>
           <div className="bayan-entry-wordmark">Cintra</div>
@@ -1284,7 +1285,7 @@ function Workspace() {
 
   // Authenticated: render the complete ChatGPT-style workspace
   return (
-    <div className={`bayan-workspace flex w-screen h-screen overflow-hidden bg-white text-neutral-900 font-sans ${isRtl ? 'rtl' : 'ltr'} ${isHomeScreen ? 'bayan-home-layout' : ''}`}>
+    <div dir={isRtl ? 'rtl' : 'ltr'} className={`bayan-workspace flex w-screen h-screen overflow-hidden bg-white text-neutral-900 font-sans ${isRtl ? 'rtl' : 'ltr'} ${isHomeScreen ? 'bayan-home-layout' : ''}`}>
       {sidebarOpen && (
         <button
           type="button"
@@ -1293,9 +1294,9 @@ function Workspace() {
           className="fixed inset-0 z-30 bg-black/20 md:hidden"
         />
       )}
-      <div className={`fixed inset-y-0 ltr:left-0 rtl:right-0 z-40 w-[clamp(200px,_17.25vw,_265px)] transition-[transform,width] duration-200 md:relative md:inset-auto md:translate-x-0 md:shrink-0 ${
+      <div className={`fixed inset-y-0 ltr:left-0 rtl:right-0 z-40 w-[clamp(240px,_18vw,_290px)] transition-[transform,width] duration-200 md:relative md:inset-auto md:translate-x-0 md:shrink-0 ${
         sidebarOpen
-          ? 'translate-x-0 md:w-[clamp(200px,_17.25vw,_265px)]'
+          ? 'translate-x-0 md:w-[clamp(240px,_18vw,_290px)]'
           : `${isRtl ? 'translate-x-full' : '-translate-x-full'} md:w-0 md:overflow-hidden`
       }`}>
         <Sidebar
@@ -1370,41 +1371,42 @@ function Workspace() {
 
         {/* Top Header */}
         {isHomeScreen ? (
-          <header className="bayan-home-header relative z-30 flex h-14 shrink-0 items-center justify-between px-5 sm:px-8">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex shrink-0 items-center gap-2 text-[11px]">
-                <button type="button" onClick={() => setLanguageMode('en')} className={currentLang === 'en' ? 'text-white' : 'text-neutral-500 hover:text-neutral-200'}>EN</button>
-                <span className="text-neutral-700">|</span>
-                <button type="button" onClick={() => setLanguageMode('ar')} className={currentLang === 'ar' ? 'text-white' : 'text-neutral-500 hover:text-neutral-200'}>عربي</button>
-              </div>
-              <div className="bayan-home-mode-switch flex items-center rounded-full p-1">
-              <button type="button" onClick={handleNewChat} className="bayan-home-mode-active rounded-full px-6 py-2 text-xs font-semibold">
-                {currentLang === 'ar' ? 'محادثة' : 'Chat'}
+          <header className="bayan-home-header relative z-30 flex h-16 shrink-0 items-center justify-center px-5 sm:px-8">
+            <div className="bayan-home-header-start absolute flex items-center gap-2">
+              <button type="button" onClick={handleToggleSidebar} aria-label={t('toggleSidebar')} title={t('toggleSidebar')} className="bayan-home-header-icon">
+                <Menu size={19} />
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  window.history.pushState({}, '', '/agent');
-                  setIsAgentMode(true);
-                }}
-                className="flex items-center gap-1.5 rounded-full px-6 py-2 text-xs font-medium text-neutral-400 transition-colors hover:text-white"
-              >
-                <Sparkles size={14} className="text-blue-400" />{currentLang === 'ar' ? 'العمل' : 'Work'}
-              </button>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center justify-end gap-2 whitespace-nowrap">
-              <div className="bayan-home-model">
-                <ModelSelector selectedModel={selectedModel} onSelectModel={handleSelectModel} />
-              </div>
-              <button type="button" onClick={() => { setSettingsInitialTab('plan'); setIsSettingsOpen(true); }} className="flex items-center gap-1.5 text-xs font-semibold text-blue-400 hover:text-blue-300">
-                <Sparkles size={16} />{currentLang === 'ar' ? 'الخطط' : 'View plans'}
-              </button>
-              <button type="button" onClick={() => void fetchConversations()} aria-label={currentLang === 'ar' ? 'تحديث المحادثات' : 'Refresh conversations'} title={currentLang === 'ar' ? 'تحديث' : 'Refresh'} className="ml-4 text-neutral-400 transition-colors hover:text-white">
+              <button type="button" onClick={() => void fetchConversations()} aria-label={currentLang === 'ar' ? 'تحديث المحادثات' : 'Refresh conversations'} title={currentLang === 'ar' ? 'تحديث' : 'Refresh'} className="bayan-home-header-icon">
                 <RefreshCw size={17} />
               </button>
-              <button type="button" onClick={handleToggleSidebar} aria-label={t('toggleSidebar')} title={t('toggleSidebar')} className="ml-4 text-neutral-400 transition-colors hover:text-white">
-                <Menu size={17} />
+              <button type="button" onClick={() => { setSettingsInitialTab('plan'); setIsSettingsOpen(true); }} className="bayan-home-plan-chip">
+                <Sparkles size={15} />{currentLang === 'ar' ? 'الخطط' : 'Plans'}
+              </button>
+            </div>
+            <div className="bayan-home-model">
+              <ModelSelector selectedModel={selectedModel} onSelectModel={handleSelectModel} />
+            </div>
+            <div className="bayan-home-header-end absolute flex items-center gap-2">
+              <div className="bayan-home-language flex items-center gap-2 rounded-full px-3 py-2" dir="ltr">
+                <button type="button" onClick={() => setLanguageMode(currentLang === 'ar' ? 'en' : 'ar')} className="min-w-6 text-xs font-semibold">
+                  {currentLang === 'ar' ? 'ع' : 'EN'}
+                </button>
+                <span aria-hidden="true" className="bayan-home-language-divider">|</span>
+                <button type="button" onClick={() => setLanguageMode(currentLang === 'ar' ? 'en' : 'ar')} aria-label={currentLang === 'ar' ? 'Change language to English' : 'تغيير اللغة إلى العربية'} title={currentLang === 'ar' ? 'English' : 'العربية'}>
+                  <Globe2 size={17} />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setSettingsInitialTab('general'); setIsSettingsOpen(true); }}
+                aria-label={currentLang === 'ar' ? 'الإعدادات' : 'Settings'}
+                title={currentLang === 'ar' ? 'الإعدادات' : 'Settings'}
+                className="bayan-home-header-icon bayan-header-floating-action"
+              >
+                <SettingsIcon size={17} />
+              </button>
+              <button type="button" onClick={handleNewChat} className="bayan-home-chat-mode">
+                <Sun size={16} />{currentLang === 'ar' ? 'محادثة' : 'Chat'}
               </button>
             </div>
           </header>
@@ -1416,6 +1418,7 @@ function Workspace() {
             onToggleSidebar={handleToggleSidebar}
             isChatExpanded={chatExpanded}
             onToggleChatWidth={() => setChatExpanded((expanded) => !expanded)}
+            onOpenSettings={() => { setSettingsInitialTab('general'); setIsSettingsOpen(true); }}
             studyMode={user?.studyModeEnabled ?? false}
           />
         )}
@@ -1441,23 +1444,39 @@ function Workspace() {
           <div dir={isRtl ? 'rtl' : 'ltr'} className={`bayan-chat-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[flex-basis] duration-300 ${artifactPanelOpen && artifactMobileView === 'preview' ? 'is-mobile-hidden' : ''}`}>
           {isHomeScreen ? (
             <section className="bayan-home-screen flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 sm:px-8 sm:py-10">
-              <div className="w-full max-w-[816px]">
-                <h1 className="mb-4 text-center text-2xl font-medium tracking-tight sm:text-[27px]">
-                  {currentLang === 'ar' ? 'ما الذي يدور في بالك اليوم؟' : "What’s on your mind today?"}
-                </h1>
+              <div className="bayan-home-content w-full max-w-[896px]">
+                <div className="bayan-home-heading-wrap relative mx-auto mb-7 w-fit max-w-full">
+                  <Sparkles className="bayan-home-heading-sparkle absolute" size={23} aria-hidden="true" />
+                  <h1 className="text-center text-[30px] font-semibold tracking-tight sm:text-[36px]">
+                    {currentLang === 'ar'
+                      ? <>ما الذي يدور في بالك <span>اليوم؟</span></>
+                      : <>What’s on your mind <span>today?</span></>}
+                  </h1>
+                </div>
+                <p className="bayan-home-subtitle mb-7 text-center text-sm leading-7 sm:text-base">
+                  {currentLang === 'ar'
+                    ? 'أنا Cintra، مساعدك الذكي. اكتب سؤالك أو اختر من الخيارات أدناه لبدء رحلتك.'
+                    : 'I’m Cintra, your AI assistant. Ask a question or choose an option below to get started.'}
+                </p>
                 {chatInput}
-                <div className="bayan-home-shortcuts mx-auto mt-5 grid w-full max-w-[816px] gap-3 sm:grid-cols-3">
-                  <button type="button" onClick={openImageStudio} className="bayan-home-action-card group flex min-h-[76px] items-center gap-3 rounded-2xl px-4 py-3 text-start text-sm font-medium shadow-lg backdrop-blur-md transition hover:-translate-y-0.5">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-400/15 text-violet-300"><ImageIcon size={18} /></span>
-                    <span>{currentLang === 'ar' ? 'أنشئ صورة أو ملصقاً' : 'Create an image or sticker'}</span>
+                <div className="bayan-home-shortcuts mx-auto mt-9 grid w-full max-w-[896px] gap-4 sm:grid-cols-3">
+                  <button type="button" onClick={openImageStudio} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium transition hover:-translate-y-1">
+                    <span className="bayan-home-action-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-full"><ImageIcon size={20} /></span>
+                    <span className="bayan-home-action-title mt-2 block">{currentLang === 'ar' ? 'أنشئ صورة أو ملصقاً' : 'Create an image or sticker'}</span>
+                    <span className="bayan-home-action-description mt-1 block">{currentLang === 'ar' ? 'حوّل أفكارك إلى صور مدهشة' : 'Turn your ideas into stunning images'}</span>
+                    <ArrowRight className="bayan-home-action-arrow absolute bottom-4 left-4" size={17} aria-hidden="true" />
                   </button>
-                  <button type="button" onClick={openWritingWorkspace} className="bayan-home-action-card group flex min-h-[76px] items-center gap-3 rounded-2xl px-4 py-3 text-start text-sm font-medium shadow-lg backdrop-blur-md transition hover:-translate-y-0.5">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-400/15 text-sky-300"><PenLine size={18} /></span>
-                    <span>{currentLang === 'ar' ? 'اكتب أو حرّر' : 'Write or edit'}</span>
+                  <button type="button" onClick={openWritingWorkspace} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium transition hover:-translate-y-1">
+                    <span className="bayan-home-action-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-full"><PenLine size={20} /></span>
+                    <span className="bayan-home-action-title mt-2 block">{currentLang === 'ar' ? 'اكتب أو حرّر' : 'Write or edit'}</span>
+                    <span className="bayan-home-action-description mt-1 block">{currentLang === 'ar' ? 'أنشئ محتوى، عدّل النصوص وطوّر أفكارك' : 'Create content, edit text, and develop ideas'}</span>
+                    <ArrowRight className="bayan-home-action-arrow absolute bottom-4 left-4" size={17} aria-hidden="true" />
                   </button>
-                  <button type="button" onClick={openWebResearch} className="bayan-home-action-card group flex min-h-[76px] items-center gap-3 rounded-2xl px-4 py-3 text-start text-sm font-medium shadow-lg backdrop-blur-md transition hover:-translate-y-0.5">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-400/15 text-emerald-300"><Globe2 size={18} /></span>
-                    <span>{currentLang === 'ar' ? 'ابحث في الويب' : 'Search the web'}</span>
+                  <button type="button" onClick={openWebResearch} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium transition hover:-translate-y-1">
+                    <span className="bayan-home-action-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-full"><Globe2 size={20} /></span>
+                    <span className="bayan-home-action-title mt-2 block">{currentLang === 'ar' ? 'ابحث في الويب' : 'Search the web'}</span>
+                    <span className="bayan-home-action-description mt-1 block">{currentLang === 'ar' ? 'احصل على أحدث المعلومات من الإنترنت' : 'Find the latest information on the web'}</span>
+                    <ArrowRight className="bayan-home-action-arrow absolute bottom-4 left-4" size={17} aria-hidden="true" />
                   </button>
                 </div>
               </div>

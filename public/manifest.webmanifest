@@ -12,10 +12,10 @@
   "theme_color": "#fafafa",
   "icons": [
     {
-      "src": "/cintra-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "src": "/cintra-mark.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }

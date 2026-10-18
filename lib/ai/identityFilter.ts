@@ -1,8 +1,8 @@
-const IDENTITY_RESPONSE = 'أنا Cintra، مساعد الذكاء الاصطناعي الخاص بك، تم تطويري وتصميمي بالكامل بواسطة المهندس زياد صابر.';
+const IDENTITY_RESPONSE = 'أنا Cintra، مساعد الذكاء الاصطناعي الاحترافي الخاص بك. تم تطويري وتصميمي بالكامل بواسطة المهندس زياد صابر (Eng. Ziad Saber).';
 
 const identityQuestionPatterns = [
-  /^(?:(?:من|مين)\s+(?:أنت|انت|عملك|طورك|صممك|أنشأك|المطور|المبرمج)|(?:ما|ايه|إيه)\s+(?:اسمك|هويتك|موديلك|نموذجك)|اسمك\s+(?:ايه|إيه|ما)|انت\s+مين|أنت\s+مين)[\s؟?!.،]*$/iu,
-  /^(?:(?:tell|introduce)\s+me\s+about\s+yourself|who\s+are\s+you|what(?:'s|\s+is)\s+your\s+name|who\s+(?:created|made|developed|built)\s+you|what\s+is\s+your\s+model|which\s+model\s+are\s+you(?:\s+using)?|what\s+model\s+are\s+you(?:\s+using)?)[\s?!.]*$/i,
+  /^(?:(?:(?:ممكن|هل)\s+)?(?:من|مين)\s+(?:(?:هو|هي)\s+)?(?:أنت|انت|عملك|طورك|مطورك|صممك|مصممك|أنشأك|المطور|المبرمج|طور|أنشأ)|(?:ما|ايه|إيه)\s+(?:اسمك|هويتك|موديلك|نموذجك)|اسمك\s+(?:ايه|إيه|ما)|انت\s+مين|أنت\s+مين)(?:\s+(?:من فضلك|لو سمحت))?[\s؟?!.،]*$/iu,
+  /^(?:(?:(?:please\s+)?(?:tell|introduce)\s+me\s+about\s+yourself)|who\s+are\s+you|what(?:'s|\s+is)\s+your\s+name|who\s+(?:created|made|developed|built)\s+you|what\s+is\s+your\s+model|which\s+model\s+are\s+you(?:\s+using)?|what\s+model\s+are\s+you(?:\s+using)?)(?:\s+please)?[\s?!.]*$/i,
 ];
 
 export function isIdentityOnlyQuestion(message: string): boolean {
@@ -13,51 +13,107 @@ export function isIdentityOnlyQuestion(message: string): boolean {
   return normalized.length <= 120 && identityQuestionPatterns.some((pattern) => pattern.test(normalized));
 }
 
-const attributionPatterns: RegExp[] = [
-  /\bI\s+am\s+(?:an?\s+)?(?:(?:AI|artificial intelligence|language|large language|LLM)\s+)?(?:language\s+)?model\s+(?:trained|created|developed)\s+by\s+(?:OpenAI|Anthropic|Claude(?:\s+[A-Z0-9][\w.-]*){0,3}|Gemini|Google|ChatGPT)\b/gi,
-  /\bI['’]m\s+(?:an?\s+)?(?:(?:AI|artificial intelligence|language|large language|LLM)\s+)?(?:language\s+)?model\s+(?:trained|created|developed)\s+by\s+(?:OpenAI|Anthropic|Claude(?:\s+[A-Z0-9][\w.-]*){0,3}|Gemini|Google|ChatGPT)\b/gi,
-  /\bI\s+am\s+an?\s+AI\s+(?:created|developed|built|trained)\s+by\s+(?:OpenAI|Anthropic|Claude(?:\s+[A-Z0-9][\w.-]*){0,3}|Gemini|Google|ChatGPT)\b/gi,
-  /\bI['’]m\s+an?\s+AI\s+(?:created|developed|built|trained)\s+by\s+(?:OpenAI|Anthropic|Claude(?:\s+[A-Z0-9][\w.-]*){0,3}|Gemini|Google|ChatGPT)\b/gi,
-  /\bAs\s+an?\s+AI\s+(?:created|developed|built|trained)\s+by\s+(?:OpenAI|Anthropic|Claude(?:\s+[A-Z0-9][\w.-]*){0,3}|Gemini|Google|ChatGPT)\b/gi,
-  /\bAs\s+an?\s+(?:language|large language|LLM)\s+model\s+(?:created|developed|built|trained)\s+by\s+(?:OpenAI|Anthropic|Claude(?:\s+[A-Z0-9][\w.-]*){0,3}|Gemini|Google|ChatGPT)\b/gi,
-  /أنا\s+(?:نموذج|مساعد)(?:\s+ذكاء\s+اصطناعي)?\s+(?:(?:تم\s+)?(?:تطويري|إنشائي|تدريبي)\s+(?:من\s+قبل|بواسطة)|من\s+تطوير)\s+(?:OpenAI|Anthropic|Claude(?:\s+[A-Z0-9][\w.-]*){0,3}|Gemini|Google|ChatGPT)\b/giu,
-];
+const modelOrProvider = /(?:\bGemma(?:\s+\d+(?:\.\d+)?(?:\s+[A-Z0-9]+)*)?|\bGoogle\b|\bOpenAI\b|\bChatGPT\b|\bAnthropic\b|\bClaude(?:\s+[A-Z0-9][\w.-]*){0,3}|\bGemini\b|\bBayan\b|\bMeta\b|\bMistral(?:\s+AI)?\b|\bLlama(?:\s+\d+(?:\.\d+)?)?\b|\bMicrosoft\b|\bCopilot\b|\bxAI\b|\bGrok\b|\bDeepSeek\b|\bQwen\b)/iu;
+const englishIdentityStart = /^(?:(?:I\s+am|I['’]m)\b|As\s+an?\b)/iu;
+const englishAttribution = /\b(?:trained|created|developed|built|made|powered|provided)\s+(?:by|for)\b|\bfrom\b|\bby\b/iu;
+const arabicFirstPersonStart = /^أنا(?=\s|$)/u;
+const arabicAsIdentityStart = /^(?:بصفتي|باعتباري)\s+/u;
+const arabicAttribution = /(?:من\s+(?:(?:قِبل|قبل|شركة)\s+)?(?:تطوير|إنشاء|تدريب)|(?:تم|جرى)\s+(?:تطويري|إنشائي|تدريبي)|(?:طورني|طورتني|أنشأني|درّبني|صممني)|تابع(?:ة)?\s+(?:ل(?:شركة)?|لشركة)|من\s+(?:Google|OpenAI|ChatGPT|Anthropic|Claude|Gemini|Gemma|Bayan|Meta|Mistral|Llama))/iu;
+const arabicAsAttribution = /(?:من\s+(?:قِبل|قبل|جهة|شركة)|(?:تم|جرى)\s+(?:تطوير|إنشاء|بناء)|(?:صنع|طور|أنشأ)\s+(?:بواسطة|من))/iu;
+const arabicAsPhrase = /^(?:بصفتي|باعتباري)\s+(?:منصة\s+)?(?:ذكاء\s+اصطناعي|الذكاء\s+الاصطناعي|نموذج|مساعد)/u;
+const englishAsPhrase = /^As\s+an?\s+(?:AI|artificial intelligence|language model|large language model)\b/iu;
 
-const incompleteClaimPatterns = [
-  /^(?:I\s+am|I['’]m)(?:\s+(?:an?\s+)?(?:(?:AI|artificial intelligence|language|large language|LLM)\s+)?(?:language\s+)?model(?:\s+(?:trained|created|developed))?(?:\s+by)?)?(?:\s+an?)?\s*$/i,
-  /^As\s+an?\s+(?:(?:AI|artificial intelligence|language|large language|LLM)(?:\s+(?:language\s+)?model)?|(?:language|large language|LLM)\s+model)(?:\s+(?:created|developed|built|trained))?(?:\s+by)?\s*$/i,
-  /^أنا\s+(?:نموذج|مساعد)(?:\s+ذكاء\s+اصطناعي)?(?:\s+(?:(?:تم\s+)?(?:تطويري|إنشائي|تدريبي)(?:\s+(?:من\s+قبل|بواسطة))?|من\s+تطوير))?\s*$/u,
-];
-
-const claimStarts = [
-  /\bI\s+am\s+/i,
-  /\bI['’]m\s+/i,
-  /\bAs\s+an?\s+/i,
-  /أنا\s+(?:نموذج|مساعد)/u,
-];
-
-function findFirstAttribution(text: string): { index: number; length: number } | null {
-  let first: { index: number; length: number } | null = null;
-  for (const pattern of attributionPatterns) {
-    pattern.lastIndex = 0;
-    const match = pattern.exec(text);
-    if (match && (first === null || match.index < first.index)) {
-      first = { index: match.index, length: match[0].length };
-    }
+function isFalseIdentitySentence(sentence: string): boolean {
+  const normalized = sentence.trim().replace(/^[>"'“”‘’]+/u, '').trim();
+  if (!modelOrProvider.test(normalized)) return false;
+  if (englishIdentityStart.test(normalized)) return englishAttribution.test(normalized);
+  if (arabicAsIdentityStart.test(normalized)) {
+    return arabicAsPhrase.test(normalized) && arabicAsAttribution.test(normalized);
   }
-  return first;
+  return arabicFirstPersonStart.test(normalized) && arabicAttribution.test(normalized);
+}
+
+function replacementForSentence(sentence: string): string {
+  if (arabicAsIdentityStart.test(sentence) && arabicAsPhrase.test(sentence)) {
+    return 'بصفتي منصة Cintra الذكية المطورة بواسطة المهندس زياد صابر.';
+  }
+  if (arabicFirstPersonStart.test(sentence)) {
+    return 'أنا Cintra، تم تطويري بواسطة المهندس زياد صابر.';
+  }
+  if (englishAsPhrase.test(sentence)) {
+    return 'As Cintra, an AI platform developed by Eng. Ziad Saber.';
+  }
+  return 'I am Cintra, your professional AI assistant, developed by Eng. Ziad Saber.';
+}
+
+function replaceSentenceIfNeeded(segment: string): string {
+  const leadingWhitespace = segment.match(/^\s*/u)?.[0] || '';
+  const trailingWhitespace = segment.match(/\s*$/u)?.[0] || '';
+  const sentence = segment.slice(leadingWhitespace.length, segment.length - trailingWhitespace.length);
+  return isFalseIdentitySentence(sentence)
+    ? `${leadingWhitespace}${replacementForSentence(sentence)}${trailingWhitespace}`
+    : segment;
 }
 
 export function replaceFalseIdentityClaims(text: string): string {
   let output = '';
-  let remaining = text;
-  while (remaining) {
-    const match = findFirstAttribution(remaining);
-    if (!match) return output + remaining;
-    output += `${remaining.slice(0, match.index)}Cintra المطوّر بواسطة المهندس زياد صابر`;
-    remaining = remaining.slice(match.index + match.length);
+  let sentenceStart = 0;
+
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (character === '\n' || character === '\r') {
+      output += replaceSentenceIfNeeded(text.slice(sentenceStart, index + 1));
+      sentenceStart = index + 1;
+      continue;
+    }
+    if (character !== '.' && character !== '!' && character !== '?' && character !== '؟') continue;
+
+    let end = index + 1;
+    while (end < text.length && /[.!?؟]/u.test(text[end])) end++;
+    if (end < text.length && !/\s/u.test(text[end])) {
+      index = end - 1;
+      continue;
+    }
+
+    output += replaceSentenceIfNeeded(text.slice(sentenceStart, end));
+    sentenceStart = end;
+    index = end - 1;
   }
+
+  output += replaceSentenceIfNeeded(text.slice(sentenceStart));
   return output;
+}
+
+export function filterIdentityResponse(value: unknown): unknown {
+  if (typeof value === 'string') return replaceFalseIdentityClaims(value);
+  if (Array.isArray(value)) return value.map(filterIdentityResponse);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, filterIdentityResponse(entry)]));
+  }
+  return value;
+}
+
+function findCompleteSentenceBoundary(text: string): number {
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (character === '\n' || character === '\r') return index + 1;
+    if (character !== '.' && character !== '!' && character !== '?' && character !== '؟') continue;
+
+    let end = index + 1;
+    while (end < text.length && /[.!?؟]/u.test(text[end])) end++;
+    if (end < text.length && !/\s/u.test(text[end])) {
+      index = end - 1;
+      continue;
+    }
+    if (end < text.length) return end;
+  }
+  return -1;
+}
+
+function mayBeIdentitySentence(text: string): boolean {
+  const normalized = text.trimStart().replace(/^[>"'“”‘’]+/u, '').trimStart();
+  if (!normalized) return false;
+  return /^(?:I(?:\s+(?:a(?:m)?)?)?|I['’]m?|As(?:\s+an?)?|أنا|بصفتي|باعتباري)(?:$|\s|[.,:;!?؟])/iu.test(normalized);
 }
 
 export function createIdentityAwareStreamFilter(): {
@@ -69,30 +125,14 @@ export function createIdentityAwareStreamFilter(): {
   const drain = (final: boolean): string => {
     let output = '';
     while (pending) {
-      const attribution = findFirstAttribution(pending);
-      if (attribution) {
-        output += pending.slice(0, attribution.index);
-        output += 'Cintra المطوّر بواسطة المهندس زياد صابر';
-        pending = pending.slice(attribution.index + attribution.length);
+      const boundary = findCompleteSentenceBoundary(pending);
+      if (boundary >= 0) {
+        output += replaceFalseIdentityClaims(pending.slice(0, boundary));
+        pending = pending.slice(boundary);
         continue;
       }
-
-      let potentialStart = -1;
-      for (const startPattern of claimStarts) {
-        const match = startPattern.exec(pending);
-        if (match && (potentialStart === -1 || match.index < potentialStart)) potentialStart = match.index;
-      }
-
-      if (!final && potentialStart !== -1) {
-        const candidate = pending.slice(potentialStart);
-        if (incompleteClaimPatterns.some((pattern) => pattern.test(candidate))) {
-          output += pending.slice(0, potentialStart);
-          pending = candidate;
-          return output;
-        }
-      }
-
-      output += pending;
+      if (!final && mayBeIdentitySentence(pending)) return output;
+      output += replaceFalseIdentityClaims(pending);
       pending = '';
     }
     return output;

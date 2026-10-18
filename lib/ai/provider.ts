@@ -582,6 +582,7 @@ export async function streamChatCompletion({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(payload),
@@ -722,7 +723,7 @@ export async function streamChatCompletion({
       }
     }
 
-    // Flush any remaining buffer
+    buffer += decoder.decode();
     if (buffer.trim().startsWith('data: ')) {
       const jsonStr = buffer.trim().slice(6).trim();
       if (jsonStr && jsonStr !== '[DONE]') {

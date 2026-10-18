@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
+import { createEmailPasswordAccount, signOutSession, updateLocalAccountCredentials } from '../auth/local.js';
 import { getCleanApisConfig, setRuntimeApiOverride, setRuntimeBayanOneConfig, setRuntimeCintraModelRoutes, setRuntimeEnabledModels, setRuntimeProviderRouting, setRuntimeServiceApiRoutes } from '../ai/provider.js';
 import { getChatCompletionsUrl, getModelsUrl } from '../ai/endpoints.js';
 import { DEFAULT_SERVICE_API_ROUTES, SERVICE_API_CAPABILITIES, type ServiceApiRoutes } from '../ai/serviceApiRoutes.js';
@@ -197,8 +198,8 @@ async function audit(req: Request, action: string, target = '', details = ''): P
 }
 
 function requireConfirmation(req: Request, res: Response): boolean {
-  if (typeof req.body?.confirmKey === 'string' && verifyAdminAccessKey(req.body.confirmKey)) return true;
-  res.status(403).json({ error: { code: 'CONFIRMATION_REQUIRED', message: 'Re-enter the admin access key to confirm this action.' } });
+  if (typeof (req as any).adminId === 'string') return true;
+  res.status(401).json({ error: { code: 'ADMIN_UNAUTHORIZED', message: 'Admin login required.' } });
   return false;
 }
 
@@ -607,6 +608,7 @@ adminRouter.get('/users', asyncRoute(async (req, res) => {
   const sortColumns: Record<string, string> = { name: 'name', email: 'email', plan: 'plan', createdAt: 'createdAt', lastActive: 'lastActive', status: 'status' };
   const orderBy = sortColumns[String(req.query.sort)] || 'createdAt';
   const direction = String(req.query.direction).toLowerCase() === 'asc' ? 'asc' : 'desc';
+  const defaultDailyMessageLimit = Number(await setting('dailyMessageLimit', '50'));
   const canQueryPage = !search
     && !['active', 'inactive'].includes(status)
     && orderBy === 'createdAt';
@@ -644,6 +646,8 @@ adminRouter.get('/users', asyncRoute(async (req, res) => {
         const lastActive = latestByUser.get(String(user.id)) || null;
         return {
           id: user.id, name: user.name, email: user.email, plan: user.plan,
+          dailyMessageLimit: user.dailyMessageLimitOverride ?? defaultDailyMessageLimit,
+          dailyMessageLimitOverride: user.dailyMessageLimitOverride ?? null,
           isGuest: isTrue(user.isGuest), isBanned: isTrue(user.isBanned), role: user.role,
           createdAt: user.createdAt, lastActive,
           status: isTrue(user.isBanned) ? 'banned' : lastActive && lastActive >= cutoffDate ? 'active' : 'inactive',
@@ -663,6 +667,8 @@ adminRouter.get('/users', asyncRoute(async (req, res) => {
     const userStatus = isTrue(user.isBanned) ? 'banned' : activeUsers.has(String(user.id)) ? 'active' : 'inactive';
     return {
       id: user.id, name: user.name, email: user.email, plan: user.plan, isGuest: user.isGuest,
+      dailyMessageLimit: user.dailyMessageLimitOverride ?? defaultDailyMessageLimit,
+      dailyMessageLimitOverride: user.dailyMessageLimitOverride ?? null,
       isBanned: user.isBanned, role: user.role, createdAt: user.createdAt, lastActive: latest, status: userStatus,
     };
   }).filter((user) =>
@@ -681,6 +687,7 @@ adminRouter.get('/users', asyncRoute(async (req, res) => {
 adminRouter.get('/users/:id', asyncRoute(async (req, res) => {
   const user = await byId('User', req.params.id);
   if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
+  const defaultDailyMessageLimit = Number(await setting('dailyMessageLimit', '50'));
   const [userConversations, userUsage, userEvents] = await Promise.all([
     all('Conversation', { filters: [{ field: 'userId', op: '==', value: req.params.id }] }),
     all('UsageLog', { filters: [{ field: 'userId', op: '==', value: req.params.id }] }),
@@ -694,7 +701,9 @@ adminRouter.get('/users/:id', asyncRoute(async (req, res) => {
     user: {
       id: user.id, name: user.name, email: user.email, plan: user.plan, isGuest: isTrue(user.isGuest),
       isBanned: isTrue(user.isBanned), role: user.role, createdAt: user.createdAt, updatedAt: user.updatedAt,
-      creditBalance: user.creditBalance, dailyMessageLimit: user.dailyMessageLimit, studyModeEnabled: isTrue(user.studyModeEnabled),
+      creditBalance: user.creditBalance,
+      dailyMessageLimit: user.dailyMessageLimitOverride ?? defaultDailyMessageLimit,
+      dailyMessageLimitOverride: user.dailyMessageLimitOverride ?? null,
     },
     conversationCount: userConversations.length, messageCount: userUsage.reduce((sum, row) => sum + number(row.count), 0),
     events: userEvents.map(({ event, details, createdAt }) => ({ event, details, createdAt })),
@@ -721,11 +730,97 @@ adminRouter.post('/users/:id/ban', asyncRoute(async (req, res) => {
 }));
 
 adminRouter.put('/users/:id', asyncRoute(async (req, res) => {
-  const parsed = z.object({ plan: z.enum(['free', 'pro', 'pro_plus']).optional() }).safeParse(req.body);
-  if (!parsed.success || !parsed.data.plan) return res.status(400).json({ error: { message: 'Choose a valid user update.' } });
-  if (!(await update('User', req.params.id, { plan: parsed.data.plan, updatedAt: new Date().toISOString() }))) return res.status(404).json({ error: { message: 'User not found.' } });
-  await audit(req, 'user.plan.update', req.params.id, String(parsed.data.plan));
+  const parsed = z.object({
+    plan: z.enum(['free', 'pro', 'pro_plus']).optional(),
+    dailyMessageLimitOverride: z.number().int().min(0).max(10000).nullable().optional(),
+  }).safeParse(req.body);
+  if (!parsed.success || (parsed.data.plan === undefined && parsed.data.dailyMessageLimitOverride === undefined)) {
+    return res.status(400).json({ error: { message: 'Choose a valid user update.' } });
+  }
+  const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (parsed.data.plan !== undefined) updates.plan = parsed.data.plan;
+  if (parsed.data.dailyMessageLimitOverride !== undefined) {
+    updates.dailyMessageLimitOverride = parsed.data.dailyMessageLimitOverride;
+  }
+  if (!(await update('User', req.params.id, updates))) return res.status(404).json({ error: { message: 'User not found.' } });
+  await audit(req, 'user.update', req.params.id, JSON.stringify(updates));
   res.json({ success: true });
+}));
+
+adminRouter.put('/users/:id/credentials', asyncRoute(async (req, res) => {
+  const parsed = z.object({
+    email: z.string().trim().email().max(254).optional(),
+    newPassword: z.string().min(12).max(100)
+      .refine((password) => Buffer.byteLength(password, 'utf8') <= 72, 'Password is too long.')
+      .optional(),
+  }).safeParse(req.body);
+  if (!parsed.success || (!parsed.data.email && !parsed.data.newPassword)) {
+    return res.status(400).json({ error: { message: parsed.success ? 'Enter an email or a new password.' : parsed.error.issues[0]?.message } });
+  }
+  const target = await byId('User', req.params.id);
+  if (!target) return res.status(404).json({ error: { message: 'User not found.' } });
+  if (isTrue(target.isGuest) || target.role === 'admin') {
+    return res.status(403).json({ error: { message: 'Credentials can only be changed for registered user accounts.' } });
+  }
+  const authUser = await findLocalUserForProfile(target);
+  if (!authUser) return res.status(404).json({ error: { message: 'Local account was not found.' } });
+  try {
+    await updateLocalAccountCredentials(authUser.$id, {
+      email: parsed.data.email,
+      password: parsed.data.newPassword,
+    });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && Number((error as { code: unknown }).code) === 409) {
+      return res.status(409).json({ error: { message: 'An account with this email already exists.' } });
+    }
+    throw error;
+  }
+  await audit(req, 'user.credentials.update', req.params.id, parsed.data.email ? 'email and/or password updated' : 'password updated');
+  res.json({ success: true });
+}));
+
+adminRouter.get('/account', asyncRoute(async (req, res) => {
+  const adminId = String((req as any).adminId);
+  const profile = await userRepo.findByAuthId(adminId);
+  if (!profile) return res.status(404).json({ error: { message: 'Admin account profile was not found.' } });
+  res.json({ email: profile.email, name: profile.name });
+}));
+
+adminRouter.put('/account', asyncRoute(async (req, res) => {
+  const parsed = z.object({
+    email: z.string().trim().email().max(254).optional(),
+    password: z.string().min(12).max(100)
+      .refine((password) => Buffer.byteLength(password, 'utf8') <= 72, 'Password is too long.')
+      .optional(),
+  }).safeParse(req.body);
+  if (!parsed.success || (!parsed.data.email && !parsed.data.password)) {
+    return res.status(400).json({ error: { message: parsed.success ? 'Enter an email or a new password.' : parsed.error.issues[0]?.message } });
+  }
+  const adminId = String((req as any).adminId);
+  const profile = await userRepo.findByAuthId(adminId);
+  if (!profile?.email) return res.status(404).json({ error: { message: 'Admin account profile was not found.' } });
+  const oldEmail = profile.email.trim().toLowerCase();
+  const newEmail = (parsed.data.email || oldEmail).trim().toLowerCase();
+  const emailChanged = newEmail !== oldEmail;
+  const addedNewAllowlistEntry = emailChanged && !await isAdminEmailAllowed(newEmail);
+  if (addedNewAllowlistEntry) await addAdminEmail(newEmail, adminId);
+  try {
+    await updateLocalAccountCredentials(adminId, {
+      email: newEmail,
+      password: parsed.data.password,
+      currentSessionToken: (req as any).adminSessionToken,
+    });
+  } catch (error) {
+    if (addedNewAllowlistEntry) await removeAdminEmail(newEmail);
+    if (error && typeof error === 'object' && 'code' in error && Number((error as { code: unknown }).code) === 409) {
+      return res.status(409).json({ error: { message: 'An account with this email already exists.' } });
+    }
+    throw error;
+  }
+  if (emailChanged) await removeAdminEmail(oldEmail);
+  await setSetting('adminBootstrapSeeded', '1');
+  await audit(req, 'admin.credentials.update', '', emailChanged ? 'email updated' : 'password updated');
+  res.json({ success: true, email: newEmail });
 }));
 
 adminRouter.post('/users/:id/reset-limit', asyncRoute(async (req, res) => {
@@ -773,21 +868,11 @@ adminRouter.delete('/users/:id', asyncRoute(async (req, res) => {
   ) {
     return res.status(403).json({ error: { message: 'The admin account cannot be deleted.' } });
   }
+  if (!await userRepo.delete(userId)) return res.status(404).json({ error: { message: 'User could not be deleted.' } });
   if (authUser) await deleteLocalUser(authUser.$id);
-  const updated = await update('User', userId, {
-    authUserId: null,
-    email: null,
-    name: 'Deleted account',
-    avatar: null,
-    customInstructions: null,
-    stripeCustomerId: null,
-    isBanned: 1,
-    authDeletedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
-  if (!updated) return res.status(404).json({ error: { message: 'User profile could not be updated.' } });
-  await audit(req, 'user.delete', userId);
-  res.json({ success: true, preservedConversationData: true });
+  adminStatsCache = null;
+  await audit(req, 'user.delete', '', 'permanent deletion completed');
+  res.json({ success: true, preservedConversationData: false });
 }));
 
 async function deleteConversation(conversationId: string, userId?: string): Promise<void> {
@@ -1746,16 +1831,37 @@ export async function initializeAdminRuntimeConfig(): Promise<void> {
     await setSetting('imageModel', process.env.CLEANAPIS_IMAGE_MODEL?.trim() || 'cf/black-forest-labs/flux-1-schnell');
   }
   const bootstrapEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  if (bootstrapEmail) {
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bootstrapEmail)) {
-      throw new Error('ADMIN_EMAIL must be a valid email address.');
-    }
-    if (!await isAdminEmailAllowed(bootstrapEmail)) {
-      await addAdminEmail(bootstrapEmail, 'environment-bootstrap');
-    }
-    const bootstrapUser = await findLocalUserByEmail(bootstrapEmail);
-    if (bootstrapUser?.status && bootstrapUser.emailVerification) {
-      await grantAdminRole(bootstrapUser.$id);
+  const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+  const bootstrapAlreadyCompleted = (await setting('adminBootstrapSeeded', '0')) === '1';
+  if ((bootstrapEmail || bootstrapPassword) && !bootstrapAlreadyCompleted) {
+    if (!bootstrapEmail || !bootstrapPassword) {
+      console.error('Admin seed skipped: configure both ADMIN_EMAIL and ADMIN_BOOTSTRAP_PASSWORD.');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bootstrapEmail)) {
+      console.error('Admin seed skipped: ADMIN_EMAIL must be a valid email address.');
+    } else if (bootstrapPassword.length < 16 || bootstrapPassword.length > 100 || Buffer.byteLength(bootstrapPassword, 'utf8') > 72) {
+      console.error('Admin seed skipped: ADMIN_BOOTSTRAP_PASSWORD must be between 16 and 100 characters.');
+    } else {
+      const existingBootstrapUser = await findLocalUserByEmail(bootstrapEmail);
+      if (existingBootstrapUser) {
+        const existingProfile = await userRepo.findByAuthId(existingBootstrapUser.$id);
+        if (existingProfile?.role === 'admin') await setSetting('adminBootstrapSeeded', '1');
+        console.warn('Admin bootstrap skipped because ADMIN_EMAIL already has an account; use the trusted admin:grant command after confirming account ownership.');
+      } else {
+        const seededAdmin = await createEmailPasswordAccount({
+          email: bootstrapEmail,
+          password: bootstrapPassword,
+          name: 'Cintra Admin',
+        });
+        try {
+          await grantAdminRole(seededAdmin.user.id);
+          if (!await isAdminEmailAllowed(bootstrapEmail)) {
+            await addAdminEmail(bootstrapEmail, 'environment-bootstrap');
+          }
+          await setSetting('adminBootstrapSeeded', '1');
+        } finally {
+          await signOutSession(seededAdmin.sessionSecret);
+        }
+      }
     }
   }
   if ((process.env.ADMIN_SESSION_SECRET || '').trim().length >= 32 && getCleanApisConfig().apiKey) await seedBuiltinModels();

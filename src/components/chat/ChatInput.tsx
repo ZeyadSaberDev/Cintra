@@ -350,13 +350,15 @@ export function ChatInput({
     event.preventDefault();
     if (!onGenerateImage || imagePrompt.trim().length < 3 || imageGenerationBusy) return;
     setImageError('');
+    setImageDialogOpen(false);
+    onImageGeneratorOpenChange?.(false);
     try {
       await onGenerateImage(imagePrompt.trim(), { aspectRatio: imageAspectRatio, style: imageStyle });
       setImagePrompt('');
-      setImageDialogOpen(false);
-      onImageGeneratorOpenChange?.(false);
     } catch (error) {
       setImageError(error instanceof Error ? error.message : t('imageGenerationFailed'));
+      setImageDialogOpen(true);
+      onImageGeneratorOpenChange?.(true);
     }
   };
 
@@ -538,13 +540,6 @@ export function ChatInput({
               </select>
             </label>
           </div>
-          {imageGenerationBusy && (
-            <div className="mt-3 rounded-xl border border-white/60 bg-white/55 p-3 shadow-inner backdrop-blur-md" role="status" aria-live="polite">
-              <div className="mb-2 h-2 w-28 animate-pulse rounded-full bg-neutral-200" />
-              <div className="aspect-[16/7] animate-pulse rounded-lg bg-gradient-to-r from-neutral-100 via-neutral-200 to-neutral-100 bg-[length:200%_100%]" />
-              <p className="mt-2 text-[11px] text-neutral-500">{currentLang === 'ar' ? 'جارٍ إنشاء الصورة...' : 'Creating your image…'}</p>
-            </div>
-          )}
           {imageError && <p className="mt-2 text-xs text-red-600" role="alert">{imageError}</p>}
           <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-[11px] leading-5 text-neutral-500">{t('imageGenerationPrivacy')}</p>

@@ -2,7 +2,8 @@ const CACHE_NAME = 'cintra-shell-v3';
 const SHELL_FILES = [
   '/',
   '/manifest.webmanifest',
-  '/cintra-icon.svg',
+  '/cintra-mark.png',
+  '/cintra-wordmark.png',
 ];
 
 self.addEventListener('install', (event) => {

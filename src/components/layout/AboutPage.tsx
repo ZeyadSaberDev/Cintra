@@ -339,7 +339,7 @@ export function AboutPage() {
     <main className="about-page" dir={isArabic ? 'rtl' : 'ltr'} lang={language}>
       <header className="about-header">
         <a href="#top" className="about-brand" aria-label="Cintra">
-          <span className="about-brand-mark"><img src="/cintra-icon.svg" alt="" aria-hidden="true" /></span>
+          <span className="about-brand-mark"><img src="/cintra-mark.png" alt="" aria-hidden="true" /></span>
           <span>Cintra</span>
         </a>
         <nav className="about-desktop-nav" aria-label={copy.menu}>
@@ -412,7 +412,7 @@ export function AboutPage() {
           <p>{copy.strengthText}</p>
         </div>
         <div className="about-flow" aria-label={isArabic ? 'Cintra، ثم القدرات والاستخدامات' : 'Cintra capabilities and use cases'}>
-          <div className="about-flow-primary"><span className="about-brand-mark"><img src="/cintra-icon.svg" alt="" aria-hidden="true" /></span><strong>{copy.oneWorkspace}</strong></div>
+          <div className="about-flow-primary"><span className="about-brand-mark"><img src="/cintra-mark.png" alt="" aria-hidden="true" /></span><strong>{copy.oneWorkspace}</strong></div>
           <div className="about-flow-connector" aria-hidden="true"><span /></div>
           <div className="about-flow-node"><span>{copy.multipleModels}</span><div className="about-model-symbols"><i /><i /><i /><i /></div></div>
           <div className="about-flow-connector" aria-hidden="true"><span /></div>
@@ -514,7 +514,7 @@ export function AboutPage() {
       </section>
 
       <footer className="about-footer">
-        <a href="#top" className="about-brand"><span className="about-brand-mark"><img src="/cintra-icon.svg" alt="" aria-hidden="true" /></span><span>Cintra</span></a>
+        <a href="#top" className="about-brand"><span className="about-brand-mark"><img src="/cintra-mark.png" alt="" aria-hidden="true" /></span><span>Cintra</span></a>
         <p>{copy.footer}</p>
         <nav className="about-footer-links" aria-label={copy.menu}>
           <a href="/privacy">{copy.privacy}</a>

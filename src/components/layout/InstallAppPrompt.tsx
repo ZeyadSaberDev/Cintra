@@ -54,7 +54,7 @@ export function InstallAppPrompt() {
   const isArabic = currentLang === 'ar';
   return (
     <aside className="bayan-install-prompt" aria-label={isArabic ? 'تثبيت تطبيق Cintra' : 'Install Cintra'}>
-      <img src="/cintra-icon.svg" alt="" aria-hidden="true" />
+      <img src="/cintra-mark.png" alt="" aria-hidden="true" />
       <div>
         <p>{isArabic ? 'ثبّت Cintra على هاتفك' : 'Install Cintra on your phone'}</p>
         <span>

@@ -16,7 +16,7 @@ import './admin.css';
 type Section = 'overview' | 'users' | 'admins' | 'apis' | 'models' | 'content' | 'announcements' | 'logs' | 'settings' | 'database';
 type ApiRow = { id: string; name: string; baseUrl: string; provider: string; isActive: boolean; priority: number; apiKey: string; modelCount: number; successRate: number; avgResponseMs: number; lastCall: string | null };
 type AdminUserRow = { id: string; username: string; email: string | null; isActive: boolean; createdAt: string; lastLogin: string | null };
-type UserRow = { id: string; name: string | null; email: string | null; plan: 'free' | 'pro' | 'pro_plus'; isGuest: boolean; isBanned: boolean; status: string; createdAt: string; lastActive: string | null };
+type UserRow = { id: string; name: string | null; email: string | null; role: 'user' | 'admin'; plan: 'free' | 'pro' | 'pro_plus'; dailyMessageLimit: number; dailyMessageLimitOverride: number | null; isGuest: boolean; isBanned: boolean; status: string; createdAt: string; lastActive: string | null };
 type ModelRow = { id: string; name: string; publicName?: string; publicId?: string; isPublic: boolean; provider: string; apiId: string; apiModelId?: string; costTier: 'low' | 'medium' | 'high'; isEnabled: boolean; usageCount: number; averageTokens: number };
 type CintraRoutingProvider = { id: string; name: string; isActive: boolean; priority: number; models: Array<{ id: string; name: string; apiModelId: string }> };
 type Settings = { dailyMessageLimit: number; maxUploadSizeMb: number; studyModeEnabled: boolean; guestLoginEnabled: boolean; highTierCredits: number; mediumTierCredits: number; lowTierCredits: number; proPlanPrice: number; logRetentionDays: number; ipWhitelist: string; imageModel: string };
@@ -322,6 +322,42 @@ function UserProfileDialog({ userId, onClose, onConversations }: { userId: strin
   </Modal></LocalizedOutput>;
 }
 
+function UserCredentialsDialog({ user, onClose, onSaved }: { user: UserRow; onClose: () => void; onSaved: () => void }) {
+  const [email, setEmail] = useState(user.email || '');
+  const [newPassword, setNewPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await adminRequest(`/api/admin/users/${encodeURIComponent(user.id)}/credentials`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim() === user.email ? undefined : email.trim(),
+          newPassword: newPassword || undefined,
+        }),
+      });
+      onSaved();
+      onClose();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <LocalizedOutput><Modal title="Update user account" onClose={onClose}>
+    <form onSubmit={(event) => void submit(event)} className="space-y-4">
+      <label className="admin-label">Email address<input className="admin-input mt-1" type="email" autoComplete="off" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+      <label className="admin-label">New password <span className="admin-muted">(leave blank to keep current)</span><input className="admin-input mt-1" type="password" autoComplete="new-password" minLength={12} maxLength={72} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+      {error && <div className="admin-alert admin-alert-danger">{error}</div>}
+      <div className="flex justify-end gap-2"><button type="button" className="admin-button" onClick={onClose}>Cancel</button><button type="submit" className="admin-button admin-button-primary" disabled={busy || (!newPassword && email.trim().toLowerCase() === (user.email || '').toLowerCase())}>{busy ? 'Saving…' : 'Save account'}</button></div>
+    </form>
+  </Modal></LocalizedOutput>;
+}
+
 function UsersPage({ openConfirm }: { openConfirm: (title: string, description: string, action: (key: string) => Promise<void>) => void }) {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [page, setPage] = useState(1);
@@ -333,6 +369,8 @@ function UsersPage({ openConfirm }: { openConfirm: (title: string, description: 
   const [sort, setSort] = useState('createdAt');
   const [direction, setDirection] = useState('desc');
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  const [credentialsUser, setCredentialsUser] = useState<UserRow | null>(null);
+  const [dailyLimitDrafts, setDailyLimitDrafts] = useState<Record<string, string>>({});
   const [conversations, setConversations] = useState<any[] | null>(null);
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -341,7 +379,12 @@ function UsersPage({ openConfirm }: { openConfirm: (title: string, description: 
     if (plan) params.set('plan', plan);
     if (status) params.set('status', status);
     void adminRequest<{ users: UserRow[]; total: number }>(`/api/admin/users?${params}`)
-      .then((result) => { setUsers(result.users); setTotal(result.total); setError(''); })
+      .then((result) => {
+        setUsers(result.users);
+        setDailyLimitDrafts(Object.fromEntries(result.users.map((user) => [user.id, String(user.dailyMessageLimit)])));
+        setTotal(result.total);
+        setError('');
+      })
       .catch((cause) => setError(cause.message));
   }, [page, limit, search, plan, status, sort, direction, refreshKey]);
   const update = async (userId: string, url: string, init: RequestInit = {}) => {
@@ -366,9 +409,9 @@ function UsersPage({ openConfirm }: { openConfirm: (title: string, description: 
         <span className="flex-1" />
         <Select value={limit} onChange={(value) => { setLimit(value); setPage(1); }}><option value="10">10 / page</option><option value="25">25 / page</option><option value="50">50 / page</option></Select>
       </div>
-      <div className="admin-table-wrap"><table className="admin-table min-w-[1050px]"><thead><tr>
+      <div className="admin-table-wrap"><table className="admin-table min-w-[1160px]"><thead><tr>
         {[['name', 'Name'], ['email', 'Email'], ['plan', 'Plan'], ['createdAt', 'Created'], ['lastActive', 'Last active'], ['status', 'Status']].map(([key, label]) => <th key={key}><button className="inline-flex items-center gap-1" onClick={() => sortBy(key)}>{label}{sort === key && (direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}</button></th>)}
-        <th>Actions</th>
+        <th>Daily limit</th><th>Actions</th>
       </tr></thead><tbody>
         {users.map((user) => <tr key={user.id}>
           <td className="font-medium">{user.name || 'Guest'}{user.isGuest && <span className="admin-muted ms-1 text-xs">Guest</span>}</td>
@@ -376,19 +419,27 @@ function UsersPage({ openConfirm }: { openConfirm: (title: string, description: 
           <td><Select value={user.plan} onChange={(value) => void update(user.id, `/api/admin/users/${encodeURIComponent(user.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: value }) })}><option value="free">Free</option><option value="pro">Pro</option><option value="pro_plus">Pro+</option></Select></td>
           <td>{formatDate(user.createdAt)}</td><td>{user.lastActive || 'Never'}</td>
           <td><StatusBadge tone={user.isBanned ? 'danger' : user.status === 'active' ? 'success' : 'neutral'}>{user.isBanned ? 'Banned' : user.status}</StatusBadge></td>
+          <td><div className="flex items-center gap-1"><input className="admin-input w-20" type="number" min={0} max={10000} aria-label={`Daily message limit for ${user.email || user.name || user.id}`} value={dailyLimitDrafts[user.id] ?? user.dailyMessageLimit} onChange={(event) => setDailyLimitDrafts((current) => ({ ...current, [user.id]: event.target.value }))} /><IconButton label="Save daily limit" onClick={() => {
+            const value = Number(dailyLimitDrafts[user.id]);
+            if (Number.isInteger(value) && value >= 0 && value <= 10000) {
+              void update(user.id, `/api/admin/users/${encodeURIComponent(user.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dailyMessageLimitOverride: value }) });
+            } else setError('Daily limit must be a whole number between 0 and 10000.');
+          }}><Check size={15} /></IconButton></div></td>
           <td><div className="flex items-center gap-1">
             <IconButton label="View profile" onClick={() => setSelectedUser(user.id)}><Eye size={15} /></IconButton>
+            {!user.isGuest && user.role !== 'admin' && <IconButton label="Edit user account" onClick={() => setCredentialsUser(user)}><Pencil size={15} /></IconButton>}
             <IconButton label={user.isBanned ? 'Unban user' : 'Ban user'} onClick={() => void update(user.id, `/api/admin/users/${encodeURIComponent(user.id)}/ban`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isBanned: !user.isBanned }) })}><Ban size={15} /></IconButton>
             <IconButton label="Reset daily limit" onClick={() => void update(user.id, `/api/admin/users/${encodeURIComponent(user.id)}/reset-limit`, { method: 'POST' })}><RotateCcw size={15} /></IconButton>
             <IconButton label="View conversations" onClick={() => void openUserConversations(user.id)}><MessageSquare size={15} /></IconButton>
             <IconButton label="Delete user" onClick={() => openConfirm('Delete user', `Permanently delete ${user.email || user.name || 'this account'} and all related data?`, async (confirmKey) => { await adminRequest(`/api/admin/users/${encodeURIComponent(user.id)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmKey }) }); setRefreshKey((value) => value + 1); })}><Trash2 size={15} /></IconButton>
           </div></td>
         </tr>)}
-        {!users.length && <tr><td colSpan={7} className="admin-muted py-10 text-center">No users match these filters.</td></tr>}
+        {!users.length && <tr><td colSpan={8} className="admin-muted py-10 text-center">No users match these filters.</td></tr>}
       </tbody></table></div>
       <div className="admin-muted flex items-center justify-between border-t admin-border px-4 py-3 text-xs"><span>Page {page} of {pageCount}</span><div className="flex gap-2"><IconButton label="Previous page" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={15} /></IconButton><IconButton label="Next page" disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={15} /></IconButton></div></div>
     </Panel>
     {selectedUser && <UserProfileDialog userId={selectedUser} onClose={() => setSelectedUser(null)} onConversations={() => void openUserConversations(selectedUser)} />}
+    {credentialsUser && <UserCredentialsDialog user={credentialsUser} onClose={() => setCredentialsUser(null)} onSaved={() => setRefreshKey((value) => value + 1)} />}
     {conversations && <Modal title="User conversations" onClose={() => setConversations(null)}><div className="space-y-2">{conversations.map((conversation) => <div key={conversation.id} className="admin-detail"><div className="font-medium">{conversation.title}</div><div className="admin-muted mt-1 text-xs">{conversation.messageCount} messages · {conversation.tokens} tokens · {formatDate(conversation.updatedAt)}</div></div>)}{!conversations.length && <p className="admin-muted text-sm">No conversations.</p>}</div></Modal>}
   </></LocalizedOutput>;
 }
@@ -398,20 +449,18 @@ function Modal({ title, onClose, children, wide = false }: { title: string; onCl
 }
 
 function ConfirmationDialog({ title, description, onConfirm, onClose }: { title: string; description: string; onConfirm: (key: string) => Promise<void>; onClose: () => void }) {
-  const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('');
-    try { await onConfirm(key); onClose(); }
+    try { await onConfirm(''); onClose(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Action failed.'); }
     finally { setBusy(false); }
   };
   return <LocalizedOutput><Modal title={title} onClose={onClose}><form onSubmit={(event) => void submit(event)}>
     <div className="admin-alert admin-alert-warning mb-4"><AlertTriangle size={16} />{description}</div>
-    <label className="admin-label">Admin access key<input className="admin-input mt-1" type="password" required autoComplete="current-password" value={key} onChange={(event) => setKey(event.target.value)} /></label>
     {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-    <div className="mt-5 flex justify-end gap-2"><button type="button" className="admin-button" onClick={onClose}>Cancel</button><button type="submit" disabled={busy || key.length < 32} className="admin-button admin-button-danger"><LockKeyhole size={14} />{busy ? 'Working…' : 'Confirm action'}</button></div>
+    <div className="mt-5 flex justify-end gap-2"><button type="button" className="admin-button" onClick={onClose}>Cancel</button><button type="submit" disabled={busy} className="admin-button admin-button-danger"><LockKeyhole size={14} />{busy ? 'Working…' : 'Confirm action'}</button></div>
   </form></Modal></LocalizedOutput>;
 }
 
@@ -438,7 +487,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
     finally { setBusy(false); }
   };
   return <LocalizedOutput><main className="admin-login-stage"><section className="admin-login-panel">
-    <img className="admin-brand-mark" src="/cintra-icon.svg" alt="" aria-hidden="true" />
+    <img className="admin-brand-mark" src="/cintra-mark.png" alt="" aria-hidden="true" />
     <p className="admin-muted mt-5 text-xs font-semibold uppercase tracking-[0.12em]">Cintra Control</p>
     <h1 className="mt-2 text-2xl font-semibold">Administrator sign in</h1>
     <p className="admin-muted mt-2 text-sm">Sign in with your local Cintra account after administrator access has been granted.</p>
@@ -1063,7 +1112,6 @@ function QuotaManagement() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
-  const [confirmKey, setConfirmKey] = useState('');
   const [resetApiId, setResetApiId] = useState<string | null | undefined>();
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const refresh = async () => {
@@ -1114,28 +1162,32 @@ function QuotaManagement() {
       await adminRequest('/api/admin/quota-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...(resetApiId ? { apiId: resetApiId } : {}), confirmKey }),
+        body: JSON.stringify({ ...(resetApiId ? { apiId: resetApiId } : {}) }),
       });
-      setConfirmKey('');
       setResetApiId(undefined);
       setNotice('Quota usage reset.');
       await refresh();
     } catch (cause) { setError(errorMessage(cause)); }
   };
   return <LocalizedOutput><Panel className="mb-5 p-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Provider quotas & failover</h2><p className="admin-muted mt-1 text-xs">Set a 0 limit for unlimited usage. Drag providers to change fallback order.</p></div><button className="admin-button" onClick={() => { setResetApiId(null); setConfirmKey(''); }}><RotateCcw size={14} />Reset all quotas</button></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Provider quotas & failover</h2><p className="admin-muted mt-1 text-xs">Set a 0 limit for unlimited usage. Drag providers to change fallback order.</p></div><button className="admin-button" onClick={() => setResetApiId(null)}><RotateCcw size={14} />Reset all quotas</button></div>
     {error && <div className="admin-alert admin-alert-danger mt-4">{error}</div>}{notice && <div className="admin-alert admin-alert-success mt-4">{notice}</div>}
     <div className="mt-4 space-y-3">{quotas.map((quota) => <div key={quota.apiId} draggable onDragStart={() => setDraggedId(quota.apiId)} onDragOver={(event) => event.preventDefault()} onDrop={() => void moveApi(quota.apiId)} className="admin-detail">
-      <div className="flex flex-wrap items-center gap-3"><span aria-label="Drag to reorder" className="cursor-grab text-neutral-400">⠿</span><strong className="min-w-36 flex-1">{quota.name}</strong><span className="admin-muted text-xs">Priority {quota.priority}</span><label className="admin-label">Quota limit<input className="admin-input mt-1 w-28" type="number" min={0} max={100000000} value={quota.quotaLimit} onChange={(event) => setQuotas((current) => current.map((item) => item.apiId === quota.apiId ? { ...item, quotaLimit: Number(event.target.value) } : item))} /></label><label className="admin-label">Period<Select value={quota.quotaPeriod} onChange={(value) => setQuotas((current) => current.map((item) => item.apiId === quota.apiId ? { ...item, quotaPeriod: value as 'daily' | 'monthly' } : item))}><option value="daily">Daily</option><option value="monthly">Monthly</option></Select></label><button className="admin-button" onClick={() => void saveQuota(quota)}>Save quota</button><button className="admin-button" onClick={() => { setResetApiId(quota.apiId); setConfirmKey(''); }}>Reset</button></div>
+      <div className="flex flex-wrap items-center gap-3"><span aria-label="Drag to reorder" className="cursor-grab text-neutral-400">⠿</span><strong className="min-w-36 flex-1">{quota.name}</strong><span className="admin-muted text-xs">Priority {quota.priority}</span><label className="admin-label">Quota limit<input className="admin-input mt-1 w-28" type="number" min={0} max={100000000} value={quota.quotaLimit} onChange={(event) => setQuotas((current) => current.map((item) => item.apiId === quota.apiId ? { ...item, quotaLimit: Number(event.target.value) } : item))} /></label><label className="admin-label">Period<Select value={quota.quotaPeriod} onChange={(value) => setQuotas((current) => current.map((item) => item.apiId === quota.apiId ? { ...item, quotaPeriod: value as 'daily' | 'monthly' } : item))}><option value="daily">Daily</option><option value="monthly">Monthly</option></Select></label><button className="admin-button" onClick={() => void saveQuota(quota)}>Save quota</button><button className="admin-button" onClick={() => setResetApiId(quota.apiId)}>Reset</button></div>
       <div className="mt-3"><div className="admin-muted mb-1 flex justify-between text-xs"><span>{quota.quotaUsed.toLocaleString()} used / {quota.quotaLimit > 0 ? quota.quotaLimit.toLocaleString() : 'Unlimited'}</span><span>{quota.quotaLimit > 0 ? `${quota.remaining?.toLocaleString()} remaining · ${quota.percentUsed}%` : 'Unlimited'} · reset in {quota.daysUntilReset ?? '—'} days</span></div><div className="h-2 overflow-hidden rounded-full bg-neutral-100"><div className="h-full rounded-full bg-neutral-800 transition-[width]" style={{ width: `${quota.percentUsed}%` }} /></div></div>
     </div>)}{loading && <p className="admin-muted py-5 text-center text-sm">Loading provider quotas...</p>}{!loading && !quotas.length && <p className="admin-muted py-5 text-center text-sm">No providers configured.</p>}</div>
     <div className="mt-6"><h3 className="text-sm font-semibold">Failover history</h3><div className="admin-table-wrap mt-2"><table className="admin-table"><thead><tr><th>Time</th><th>From</th><th>To</th><th>Model</th><th>Reason</th></tr></thead><tbody>{failovers.slice(0, 20).map((log, index) => <tr key={`${log.id}-${index}`}><td>{formatDate(log.createdAt)}</td><td>{log.requestedApiName || log.requestedApiId}</td><td>{log.selectedApiName || log.selectedApiId}</td><td className="font-mono text-xs">{log.modelId}</td><td>{log.reason}</td></tr>)}{!failovers.length && <tr><td colSpan={5} className="admin-muted py-5 text-center">No failovers recorded.</td></tr>}</tbody></table></div></div>
-    {resetApiId !== undefined && <Modal title="Reset API quota" onClose={() => setResetApiId(undefined)}><p className="admin-muted mb-4 text-sm">Re-enter the administrator key to confirm this quota reset.</p><label className="admin-label">Admin access key<input className="admin-input mt-1" type="password" autoComplete="current-password" value={confirmKey} onChange={(event) => setConfirmKey(event.target.value)} /></label><div className="mt-4 flex justify-end gap-2"><button className="admin-button" onClick={() => setResetApiId(undefined)}>Cancel</button><button className="admin-button admin-button-primary" disabled={!confirmKey} onClick={() => void resetQuota()}>Confirm reset</button></div></Modal>}
+    {resetApiId !== undefined && <Modal title="Reset API quota" onClose={() => setResetApiId(undefined)}><p className="admin-muted mb-4 text-sm">Reset recorded provider usage? This will not change provider billing.</p><div className="mt-4 flex justify-end gap-2"><button className="admin-button" onClick={() => setResetApiId(undefined)}>Cancel</button><button className="admin-button admin-button-primary" onClick={() => void resetQuota()}>Confirm reset</button></div></Modal>}
   </Panel></LocalizedOutput>;
 }
 
-function SettingsPage() {
+function SettingsPage({ onAdminEmailChange }: { onAdminEmailChange: (email: string) => void }) {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [accountError, setAccountError] = useState('');
+  const [accountNotice, setAccountNotice] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1143,7 +1195,29 @@ function SettingsPage() {
   const [keyConfirm, setKeyConfirm] = useState('');
   const [activeSessions, setActiveSessions] = useState<any[] | null>(null);
   useEffect(() => { void adminRequest<{ settings: Settings }>('/api/admin/settings').then((result) => setSettings(result.settings)).catch((cause) => setError(cause.message)); }, []);
+  useEffect(() => { void adminRequest<{ email: string }>('/api/admin/account').then((result) => setAdminEmail(result.email)).catch((cause) => setAccountError(errorMessage(cause))); }, []);
   const setNumber = (key: keyof Settings, value: string) => setSettings((current) => current ? { ...current, [key]: Number(value) } : current);
+  const saveAdminAccount = async (event: FormEvent) => {
+    event.preventDefault();
+    setAccountBusy(true);
+    setAccountError('');
+    setAccountNotice('');
+    try {
+      const result = await adminRequest<{ email: string }>('/api/admin/account', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminEmail.trim(), password: adminPassword || undefined }),
+      });
+      setAdminEmail(result.email);
+      onAdminEmailChange(result.email);
+      setAdminPassword('');
+      setAccountNotice('Admin account settings saved.');
+    } catch (cause) {
+      setAccountError(errorMessage(cause));
+    } finally {
+      setAccountBusy(false);
+    }
+  };
   const save = async (event: FormEvent) => {
     event.preventDefault(); if (!settings) return; setBusy(true); setNotice(''); setError('');
     try { await adminRequest('/api/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }); setNotice('Settings saved. Runtime limits apply immediately; authentication sessions are managed by Cintra.'); }
@@ -1160,6 +1234,14 @@ function SettingsPage() {
   return <LocalizedOutput><>
     <PageHeading title="Settings & configuration" description="Changes are validated and stored in the application database." />
     {error && <div className="admin-alert admin-alert-danger mb-4">{error}</div>}{notice && <div className="admin-alert admin-alert-success mb-4"><Check size={15} />{notice}</div>}
+    <Panel className="mb-4 p-5"><h2 className="mb-1 text-sm font-semibold">Admin Settings</h2><p className="admin-muted mb-4 text-xs">Update the administrator login email and password. Passwords are stored as bcrypt hashes; the bootstrap environment password is only used to create the initial account.</p>
+      {accountError && <div className="admin-alert admin-alert-danger mb-3">{accountError}</div>}{accountNotice && <div className="admin-alert admin-alert-success mb-3"><Check size={15} />{accountNotice}</div>}
+      <form onSubmit={(event) => void saveAdminAccount(event)} className="grid gap-4 sm:grid-cols-2">
+        <label className="admin-label">Administrator email<input className="admin-input mt-1" type="email" required autoComplete="email" value={adminEmail} onChange={(event) => setAdminEmail(event.target.value)} /></label>
+        <label className="admin-label">New password <span className="admin-muted">(leave blank to keep current)</span><input className="admin-input mt-1" type="password" autoComplete="new-password" minLength={12} maxLength={72} value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} placeholder="At least 12 characters" /></label>
+        <div className="sm:col-span-2"><button type="submit" className="admin-button admin-button-primary" disabled={accountBusy || !adminEmail.trim()}>{accountBusy ? 'Saving…' : 'Save admin account'}</button></div>
+      </form>
+    </Panel>
     <QuotaManagement />
     <form onSubmit={(event) => void save(event)} className="space-y-4">
       <Panel className="p-5"><h2 className="mb-4 text-sm font-semibold">System settings</h2><div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{numberField('Daily free message limit', 'dailyMessageLimit', 0, 10000, 'messages / day')}{numberField('Maximum file size', 'maxUploadSizeMb', 1, 50, 'MB per file')}
@@ -1257,7 +1339,7 @@ export function AdminDashboard() {
   const dashboard = <div className={`admin-root ${dark ? 'admin-dark' : ''}`} dir={language === 'ar' ? 'rtl' : 'ltr'} lang={language}>
     {mobileOpen && <button className="admin-mobile-backdrop" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
     <aside className={`admin-sidebar ${collapsed ? 'is-collapsed' : ''} ${mobileOpen ? 'is-mobile-open' : ''}`}>
-      <div className="admin-sidebar-brand"><img className="admin-brand-mark small" src="/cintra-icon.svg" alt="" aria-hidden="true" />{!collapsed && <div><div className="text-sm font-semibold">Cintra</div><div className="admin-muted text-[10px]">Admin workspace</div></div>}<button className="admin-sidebar-collapse" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setCollapsed((value) => !value)}><MoreHorizontal size={16} /></button></div>
+      <div className="admin-sidebar-brand"><img className="admin-brand-mark small" src="/cintra-mark.png" alt="" aria-hidden="true" />{!collapsed && <div><div className="text-sm font-semibold">Cintra</div><div className="admin-muted text-[10px]">Admin workspace</div></div>}<button className="admin-sidebar-collapse" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => setCollapsed((value) => !value)}><MoreHorizontal size={16} /></button></div>
       <nav className="admin-nav">{navItems.map(({ id, label, icon: Icon }) => <button key={id} title={collapsed ? label : undefined} className={`admin-nav-item ${section === id ? 'active' : ''}`} onClick={() => navigate(`/admin/${id}`)}><Icon size={17} /><span>{label}</span></button>)}</nav>
       <div className="admin-sidebar-bottom"><div className="admin-admin-identity"><div className="admin-avatar">{adminName.slice(0, 1).toUpperCase()}</div>{!collapsed && <div className="min-w-0"><div className="truncate text-xs font-medium">{adminName}</div><div className="admin-muted text-[10px]">Administrator</div></div>}</div><button className="admin-nav-item" title={collapsed ? 'Logout' : undefined} onClick={() => void logout()}><LogOut size={16} /><span>Logout</span></button></div>
     </aside>
@@ -1277,7 +1359,7 @@ export function AdminDashboard() {
         {section === 'content' && <ContentPage openConfirm={openConfirm} />}
         {section === 'announcements' && <AnnouncementPage />}
         {section === 'logs' && <LogsPage />}
-        {section === 'settings' && <SettingsPage />}
+        {section === 'settings' && <SettingsPage onAdminEmailChange={setAdminName} />}
         {section === 'database' && <DatabasePage openConfirm={openConfirm} />}
       </div>
     </main>

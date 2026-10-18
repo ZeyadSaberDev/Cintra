@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { compareSync, hashSync } from 'bcryptjs';
 import { getDatabase } from '../db/sqlite.js';
-import { LocalDatabaseError } from '../db/repository.js';
+import { LocalDatabaseError, runLocalTransaction } from '../db/repository.js';
 import { userRepo, type DbUser } from '../db/index.js';
 import { sendPasswordResetLink } from './emailOtp.js';
 
@@ -35,13 +36,21 @@ export function isLocalCredentialError(error: unknown): boolean {
   return [400, 401, 404, 409].includes(localAuthErrorCode(error) || 0);
 }
 
-function passwordHash(password: string, salt = randomBytes(16).toString('hex')): string {
-  const hash = scryptSync(password, salt, 64).toString('hex');
-  return `scrypt$${salt}$${hash}`;
+function passwordHash(password: string): string {
+  if (Buffer.byteLength(password, 'utf8') > 72) throw new RangeError('Password is too long.');
+  return hashSync(password, 12);
 }
 
 function verifyPassword(password: string, encoded: string | null): boolean {
   if (!encoded) return false;
+  if (encoded.startsWith('$2')) {
+    if (Buffer.byteLength(password, 'utf8') > 72) return false;
+    try {
+      return compareSync(password, encoded);
+    } catch {
+      return false;
+    }
+  }
   const [algorithm, salt, expectedHex] = encoded.split('$');
   if (algorithm !== 'scrypt' || !salt || !expectedHex) return false;
   const expected = Buffer.from(expectedHex, 'hex');
@@ -208,6 +217,7 @@ export async function requestPasswordReset(emailInput: string, url: string): Pro
 }
 
 export async function completePasswordReset(userId: string, token: string, password: string): Promise<void> {
+  if (Buffer.byteLength(password, 'utf8') > 72) throw new LocalDatabaseError('Password is too long.', 400);
   const database = getDatabase();
   const reset = database.prepare('SELECT * FROM password_resets WHERE token_hash = ? AND user_id = ?')
     .get(digestToken(token), userId) as { token_hash: string; expires_at: string } | undefined;
@@ -221,12 +231,63 @@ export async function completePasswordReset(userId: string, token: string, passw
   database.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId);
 }
 
+export async function updateLocalAccountCredentials(
+  userId: string,
+  updates: { email?: string; password?: string; currentSessionToken?: string },
+): Promise<{ email: string }> {
+  const database = getDatabase();
+  const account = accountForUser(userId);
+  if (!account) throw new LocalDatabaseError('Local account was not found.', 404);
+  const email = updates.email === undefined ? account.email : normalizeEmail(updates.email);
+  const emailChanged = email !== account.email.trim().toLowerCase();
+  if (updates.password !== undefined && Buffer.byteLength(updates.password, 'utf8') > 72) {
+    throw new LocalDatabaseError('Password is too long.', 400);
+  }
+  const profile = await userRepo.findByAuthId(userId);
+  if (!profile) throw new LocalDatabaseError('Account profile was not found.', 404);
+  const now = new Date().toISOString();
+  const nextPasswordHash = updates.password === undefined ? undefined : passwordHash(updates.password);
+
+  try {
+    await runLocalTransaction(async (transaction) => {
+      const result = database.prepare(`
+        UPDATE auth_accounts
+        SET email = ?, password_hash = COALESCE(?, password_hash), updated_at = ?
+        WHERE user_id = ?
+      `).run(email, nextPasswordHash ?? null, now, userId);
+      if (Number(result.changes) !== 1) throw new LocalDatabaseError('Local account was not found.', 404);
+      await transaction.update('users', profile.id, { email, updatedAt: now });
+      if (updates.password !== undefined || emailChanged) {
+        const currentSessionHash = updates.currentSessionToken
+          ? digestToken(updates.currentSessionToken)
+          : null;
+        if (currentSessionHash) {
+          database.prepare('DELETE FROM auth_sessions WHERE user_id = ? AND token_hash != ?')
+            .run(userId, currentSessionHash);
+        } else {
+          database.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId);
+        }
+        database.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
+      }
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+      throw new LocalDatabaseError('An account with this email already exists.', 409);
+    }
+    throw error;
+  }
+  return { email };
+}
+
 export async function signOutSession(sessionToken: string): Promise<void> {
   getDatabase().prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(digestToken(sessionToken));
 }
 
 export async function deleteAuthUser(userId: string): Promise<void> {
-  getDatabase().prepare('DELETE FROM auth_accounts WHERE user_id = ?').run(userId);
+  const database = getDatabase();
+  database.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId);
+  database.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
+  database.prepare('DELETE FROM auth_accounts WHERE user_id = ?').run(userId);
 }
 
 export async function setAuthUserDisabled(userId: string, disabled: boolean): Promise<void> {

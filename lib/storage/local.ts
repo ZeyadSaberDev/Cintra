@@ -82,6 +82,16 @@ export async function deleteLocalFile(reference: string): Promise<boolean> {
   return true;
 }
 
+export async function deleteLocalFilesForOwner(ownerId: string): Promise<void> {
+  const rows = getDatabase().prepare('SELECT file_id FROM local_files WHERE owner_id = ?')
+    .all(ownerId) as Array<{ file_id: string }>;
+  for (const row of rows) {
+    if (!await deleteLocalFile(`${localUrlPrefix}${row.file_id}`)) {
+      throw new Error(`Could not delete local file ${row.file_id} owned by the account.`);
+    }
+  }
+}
+
 export async function localStorageUsageBytes(): Promise<number> {
   const result = getDatabase().prepare('SELECT COALESCE(SUM(size), 0) AS size FROM local_files')
     .get() as { size: number };

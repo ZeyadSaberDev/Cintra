@@ -65,8 +65,6 @@ import {
   UpdateProfileSchema,
   sanitizeUser,
 } from './lib/auth/index.js';
-import { isAdminEmailAllowed } from './lib/admin/allowlist.js';
-import { grantAdminRole } from './lib/admin/claims.js';
 import {
   cachedAdminSetting,
   cachedAdminSettingStrict,
@@ -101,11 +99,12 @@ import { isCintraModelId } from './lib/ai/cintraModels.js';
 import { shouldUseThinkingMode } from './lib/chat/complexity.js';
 import { getModelCost } from './lib/config/modelCosts.js';
 import { AI_CONTEXT_MESSAGE_LIMIT } from './lib/chat/messageHistory.js';
-import { hasReachedDailyMessageLimit, ownsConversation } from './lib/chat/requestPolicy.js';
+import { hasReachedDailyMessageLimit, ownsConversation, resolveDailyMessageLimit } from './lib/chat/requestPolicy.js';
 import { messageHasLinks, readLinkedContent } from './lib/web/linkReader.js';
 import { formatWebSearchContext, searchWeb, shouldSearchWebWithConsent } from './lib/web/webSearch.js';
 import {
   createIdentityAwareStreamFilter,
+  filterIdentityResponse,
   IDENTITY_RESPONSE,
   isIdentityOnlyQuestion,
   replaceFalseIdentityClaims,
@@ -278,6 +277,28 @@ app.use('/api/webhook/stripe', express.raw({ type: 'application/json', limit: '1
 app.use(express.json({ limit: '20mb' }));
 app.use(cookieParser());
 app.disable('x-powered-by');
+
+app.use('/api/chat/send', (_req, res, next) => {
+  const originalSend = res.send.bind(res);
+  res.send = ((body?: any) => {
+    let filteredBody = body;
+    if (typeof body === 'string') {
+      try {
+        filteredBody = JSON.stringify(filterIdentityResponse(JSON.parse(body)));
+      } catch {
+        filteredBody = replaceFalseIdentityClaims(body);
+      }
+    } else if (Buffer.isBuffer(body) && res.getHeader('Content-Type')?.toString().includes('application/json')) {
+      try {
+        filteredBody = Buffer.from(JSON.stringify(filterIdentityResponse(JSON.parse(body.toString('utf8')))));
+      } catch {
+        filteredBody = body;
+      }
+    }
+    return originalSend(filteredBody);
+  }) as Response['send'];
+  next();
+});
 
 function getPublicBaseUrl(req?: Request): string | null {
   const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN?.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
@@ -960,7 +981,6 @@ app.post('/api/auth/signup', rateLimiter({ maxRequests: 20 }), async (req: Reque
     const result = await createEmailPasswordAccount({
       email, password, name, languagePreference,
     });
-    if (await isAdminEmailAllowed(email)) await grantAdminRole(result.user.id);
     setUserSessionCookies(res, result.sessionSecret);
     recordUserEvent(result.user.id, 'signup');
     res.status(201).json({ user: sanitizeUser(result.user), verificationEmailSent: result.verificationEmailSent });
@@ -1281,15 +1301,11 @@ app.post('/api/admin/login', rateLimiter({ windowMs: 15 * 60 * 1000, maxRequests
         error: { code: 'ADMIN_EMAIL_UNVERIFIED', message: 'Verify your email address before accessing the admin dashboard.' },
       });
     }
-    const isAllowlisted = email ? await isAdminEmailAllowed(email) : false;
-    if (!email || (user.role !== 'admin' && !isAllowlisted)) {
+    if (!email || user.role !== 'admin') {
       res.clearCookie(adminCookieName, adminCookieOptions);
       await recordAdminAction(authUser.$id, 'admin.login.denied', email || '');
       await signOutSession(sessionSecret);
       return res.status(403).json({ error: { code: 'ADMIN_NOT_ALLOWLISTED', message: 'This account is not allowed to access the admin dashboard.' } });
-    }
-    if (isAllowlisted && user.role !== 'admin') {
-      await grantAdminRole(authUser.$id);
     }
     res.cookie(adminCookieName, sessionSecret, { ...adminCookieOptions, maxAge: 30 * 24 * 60 * 60 * 1000 });
     await recordAdminAction(authUser.$id, 'admin.login', email);
@@ -1312,6 +1328,7 @@ app.get('/api/admin/availability', async (_req, res) => {
 async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     if (!await isAdminIpAllowed(req)) return res.status(403).json({ error: { code: 'ADMIN_IP_BLOCKED', message: 'This IP address is not allowed.' } });
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !requireSameOrigin(req, res)) return;
     const sessionSecret = req.cookies?.[adminCookieName];
     if (typeof sessionSecret !== 'string') {
       res.clearCookie(adminCookieName, adminCookieOptions);
@@ -1331,6 +1348,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
     (req as any).adminId = authUser.$id;
     (req as any).adminName = authUser.email;
     (req as any).adminEmail = authUser.email.trim().toLowerCase();
+    (req as any).adminSessionToken = sessionSecret;
     next();
   } catch (error) {
     if (isLocalCredentialError(error)) {
@@ -3310,8 +3328,12 @@ app.post('/api/chat/send', rateLimiter({
     });
   }
   const { conversationId, message, modelId, regenerate, editMessageId, thinkingModeEnabled, webSearchConsent, attachmentIds } = parsed.data;
-  if (user.plan === 'free') {
-    const dailyLimit = Number(await readPolicyAdminSetting('dailyMessageLimit', String(user.dailyMessageLimit || 50)));
+  const override = user.dailyMessageLimitOverride;
+  const defaultDailyLimit = user.plan === 'free' && !Number.isInteger(override)
+    ? Number(await readPolicyAdminSetting('dailyMessageLimit', '50'))
+    : 50;
+  const dailyLimit = resolveDailyMessageLimit(user.plan, override, defaultDailyLimit);
+  if (dailyLimit !== null) {
     if (hasReachedDailyMessageLimit(await usageRepo.getTodayCount(user.id), dailyLimit)) {
       return res.status(429).json({
         error: {
@@ -3522,11 +3544,22 @@ app.post('/api/chat/send', rateLimiter({
 
   const abortController = new AbortController();
   res.on('close', () => {
+    clearInterval(heartbeat);
     if (!res.writableEnded) abortController.abort();
   });
-  res.setHeader('Content-Type', 'text/event-stream');
+  res.on('finish', () => clearInterval(heartbeat));
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded || res.destroyed) {
+      clearInterval(heartbeat);
+      return;
+    }
+    res.write(': keep-alive\n\n');
+  }, 15000);
+  heartbeat.unref?.();
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
   res.write(`data: ${JSON.stringify({
     type: 'init',
@@ -3665,14 +3698,10 @@ app.post('/api/chat/send', rateLimiter({
     customInstructions: user.customInstructions,
     thinkingMode,
     callbacks: {
-      onToken: (token: string) => {
-        writeAssistantToken(identityFilter.push(token));
-      },
+      onToken: (token: string) => writeAssistantToken(identityFilter.push(token)),
       onFinish: async (finalText: string) => {
         writeAssistantToken(identityFilter.finish());
-        if (!fullAiResponse && finalText) {
-          writeAssistantToken(replaceFalseIdentityClaims(finalText));
-        }
+        if (!fullAiResponse && finalText) writeAssistantToken(replaceFalseIdentityClaims(finalText));
         const textToSave = fullAiResponse || replaceFalseIdentityClaims(finalText);
         if (textToSave.trim()) {
           const savedAsstMsg = await messageRepo.create({
@@ -3700,6 +3729,7 @@ app.post('/api/chat/send', rateLimiter({
         if (!res.writableEnded && !res.destroyed) res.end();
       },
       onError: (err) => {
+        writeAssistantToken(identityFilter.finish());
         if (!res.writableEnded && !res.destroyed) {
           res.write(`data: ${JSON.stringify({ type: 'error', error: err })}\n\n`);
           res.end();

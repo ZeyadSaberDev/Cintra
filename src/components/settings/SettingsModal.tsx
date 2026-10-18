@@ -558,7 +558,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'general', thinkin
               <div className="flex items-center justify-between pb-4 border-b border-[#f0f0f0]">
                 <div>
                   <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.16em] text-neutral-400">
-                    <img src="/cintra-icon.svg" alt="" aria-hidden="true" className="bayan-settings-brand-mark" />
+                    <img src="/cintra-mark.png" alt="" aria-hidden="true" className="bayan-settings-brand-mark" />
                     <span>Cintra</span>
                   </div>
                   <h2 className="text-base font-semibold text-neutral-900">

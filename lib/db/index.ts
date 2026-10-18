@@ -8,7 +8,7 @@ import {
 } from './repository.js';
 import type { DataCollection } from './collections.js';
 import { initLocalDatabase } from './sqlite.js';
-import { deleteLocalFile } from '../storage/local.js';
+import { deleteLocalFile, deleteLocalFilesForOwner, localStorageId } from '../storage/local.js';
 import {
   creditCounterId,
   decrementCreditCounter,
@@ -62,6 +62,7 @@ export interface DbUser extends Record<string, any> {
   plan: 'free' | 'pro' | 'pro_plus';
   stripeCustomerId: string | null;
   dailyMessageLimit: number;
+  dailyMessageLimitOverride?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -127,9 +128,10 @@ async function deleteFiles(rows: Array<{ id?: string; fileUrl?: unknown }>): Pro
     if (typeof fileUrl !== 'string') {
       throw new Error(`Cannot delete local file for ${id || 'record'}: fileUrl is not a string.`);
     }
-    if (!(await deleteLocalFile(fileUrl))) {
+    if (!localStorageId(fileUrl)) {
       throw new Error(`Cannot delete local file for ${id || 'record'}: the reference is invalid or the file is missing.`);
     }
+    await deleteLocalFile(fileUrl);
   }));
 }
 
@@ -137,7 +139,10 @@ async function deletePdfTextFiles(rows: Array<StoredDocument>): Promise<void> {
   await Promise.all(rows.map(async ({ __storageFields }) => {
     if (!__storageFields || typeof __storageFields !== 'object') return;
     const reference = (__storageFields as Record<string, unknown>).extractedText;
-    if (typeof reference === 'string') await deleteLocalFile(reference);
+    if (typeof reference === 'string' && reference.startsWith('local://')) {
+      if (!localStorageId(reference)) throw new Error('Invalid extracted PDF text file reference.');
+      await deleteLocalFile(reference);
+    }
   }));
 }
 
@@ -267,6 +272,7 @@ export const userRepo = {
       plan: 'free',
       stripeCustomerId: null,
       dailyMessageLimit: 50,
+      dailyMessageLimitOverride: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -320,7 +326,12 @@ export const userRepo = {
   },
 
   async delete(id: string): Promise<boolean> {
-    if (!(await users.get(id))) return false;
+    const profile = await users.get(id);
+    if (!profile) return false;
+    if (typeof profile.avatar === 'string' && profile.avatar.startsWith('local://')) {
+      if (!localStorageId(profile.avatar)) throw new Error('Invalid user avatar file reference.');
+      await deleteLocalFile(profile.avatar);
+    }
 
     const ownedConversations = await conversations.list({ filters: [filter('userId', id)] });
     for (const conversation of ownedConversations) {
@@ -351,20 +362,35 @@ export const userRepo = {
     }
     await deleteRows('Agent', agents);
 
+    const messageRows = await messages.list({ filters: [filter('userId', id)] });
+    await deleteRows('Message', messageRows);
+
+    const ownedEmailChallenges = profile.email
+      ? await new LocalRepository<StoredDocument>('EmailOtp').list({ filters: [filter('email', profile.email)] })
+      : [];
+    await deleteRows('EmailOtp', ownedEmailChallenges);
+
+    const identifiers = new Set([id, profile.authUserId, profile.email].filter((value): value is string => typeof value === 'string' && value.length > 0));
+    const adminLogs = await new LocalRepository<StoredDocument>('AdminLog').list();
+    await deleteRows('AdminLog', adminLogs.filter((row) => typeof row.target === 'string' && identifiers.has(row.target)));
+
     for (const collection of [
-      'UsageLog', 'MessageAudio', 'StudyNote', 'StudyArtifact', 'Subscription', 'Payment',
-      'PendingUpload', 'Feedback', 'SharedLink',
+      'UsageLog', 'MessageAudio', 'Attachment', 'StudyNote', 'StudyArtifact', 'Subscription',
+      'Payment', 'PendingUpload', 'Feedback', 'SharedLink', 'PDFOperation', 'AgentAction',
+      'AgentApproval', 'ApiRequestLog', 'UserEventLog', 'GuestDevice', 'Account', 'Session',
+      'PasswordReset',
     ] as const) {
       const repository = new LocalRepository<StoredDocument>(collection);
       const rows = await repository.list({ filters: [filter('userId', id)] });
-      if (collection === 'MessageAudio' || collection === 'PendingUpload') {
+      if (collection === 'MessageAudio' || collection === 'Attachment' || collection === 'PendingUpload') {
         await deleteFiles(rows);
       }
       await deleteRows(collection, rows);
     }
 
-    await usageRepo.deleteForUser(id);
-    await deleteServerCounter(creditCounterId(id));
+    const userCounters = (await listServerCounters()).filter((row) => row.userId === id);
+    await Promise.all(userCounters.map((row) => deleteServerCounter(row.$id)));
+    await deleteLocalFilesForOwner(id);
     return users.delete(id);
   },
 };

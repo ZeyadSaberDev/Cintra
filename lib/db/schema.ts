@@ -20,6 +20,7 @@ const boolean: AttributeKind = 'boolean';
 export const DATA_SCHEMA: Record<DataCollection, CollectionSchema> = {
   User: schema({
     authUserId: text, email: text, emailHash: text, createdAt: text, isGuest: boolean, isBanned: boolean, plan: text,
+    dailyMessageLimitOverride: integer,
   }, [['authUserId'], ['emailHash'], ['createdAt']]),
   UsageLog: schema({ userId: text, date: text }, [['userId', 'date'], ['userId']]),
   Conversation: schema({ userId: text, createdAt: text, updatedAt: text }, [['userId'], ['userId', 'createdAt']]),
