@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "Cintra AI Workspace",
+  "short_name": "Cintra",
+  "description": "Cintra workspace for conversation, research, images, and document analysis.",
+  "lang": "en",
+  "dir": "auto",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#fafafa",
+  "icons": [
+    {
+      "src": "/cintra-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

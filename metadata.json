@@ -1,0 +1,6 @@
+{
+  "name": "Cintra (سينترا) - AI Workspace",
+  "description": "Bilingual AI workspace for conversation, research, image creation, and document analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
