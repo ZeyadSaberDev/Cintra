@@ -116,9 +116,9 @@ export function ModelSelector({ selectedModel, onSelectModel }: ModelSelectorPro
         className="bayan-model-trigger flex h-8 max-w-[min(46vw,290px)] min-w-0 items-center gap-1.5 rounded-full border border-[#e5e5e5] bg-white px-2 text-xs font-medium text-neutral-800 shadow-xs transition-colors hover:bg-neutral-50 sm:max-w-[min(60vw,290px)] sm:px-3"
       >
         <span className="min-w-0 truncate max-w-[130px] sm:max-w-[200px]">{displayName}</span>
-        <span className={`flex shrink-0 items-center gap-1 ${currentCost.colorClass}`}>
+        <span className={`bayan-model-cost flex shrink-0 items-center gap-1 ${currentCost.colorClass}`}>
           <span aria-hidden="true">{currentCost.icon}</span>
-          <span>{t(`${currentCost.tier.toLowerCase()}Tier`)}</span>
+          <span className="bayan-model-cost-label">{t(`${currentCost.tier.toLowerCase()}Tier`)}</span>
         </span>
         <ChevronDown size={14} className="text-neutral-500 shrink-0" />
       </button>
