@@ -8,7 +8,32 @@ import {
   getImageGenerationsUrl,
   getImageSize,
   imageProviderError,
+  isImageGenerationIntent,
 } from '../lib/ai/imageGeneration.js';
+
+test('detects explicit English and Arabic image-generation requests without matching ordinary phrases', () => {
+  for (const prompt of [
+    'ارسم لي قطة كرتونية',
+    'صمم لي شعاراً بسيطاً',
+    'ولد صورة لمنظر جبلي',
+    'تخيل شكل مدينة مستقبلية',
+    'draw a cat',
+    'generate an image of a blue house',
+    'create a photo of a quiet beach',
+    'picture of a red bicycle',
+  ]) {
+    assert.equal(isImageGenerationIntent(prompt), true, prompt);
+  }
+
+  for (const message of [
+    'Explain how to draw a conclusion from these results.',
+    'Create an image processing pipeline in Python.',
+    'Tell me about the history of photography.',
+    'ما أنواع النسخ الاحتياطي في ويندوز؟',
+  ]) {
+    assert.equal(isImageGenerationIntent(message), false, message);
+  }
+});
 
 test('normalizes image API base URLs and preserves an explicit image endpoint', () => {
   assert.equal(getImageGenerationsUrl('https://api.example/v1'), 'https://api.example/v1/images/generations');

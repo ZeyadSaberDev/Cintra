@@ -97,6 +97,7 @@ import {
   generateInlineImage,
   getImageGenerationsUrl,
   imageProviderError,
+  isImageGenerationIntent,
 } from './lib/ai/imageGeneration.js';
 import { isCintraModelId } from './lib/ai/cintraModels.js';
 import { shouldUseThinkingMode } from './lib/chat/complexity.js';
@@ -3361,6 +3362,10 @@ app.post('/api/chat/send', rateLimiter({
   if (!isPublicModelId(selectedModel)) {
     return res.status(400).json({ error: { code: 'INVALID_MODEL', message: 'The selected Cintra model is unavailable.' } });
   }
+  const imageGenerationIntent = !regenerate
+    && !editMessageId
+    && attachmentIds.length === 0
+    && isImageGenerationIntent(message);
   if (regenerate && attachmentIds.length) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Attachments cannot be added while regenerating.' } });
   }
@@ -3373,6 +3378,24 @@ app.post('/api/chat/send', rateLimiter({
     : [];
   if (pendingFiles.length !== attachmentIds.length) {
     return res.status(400).json({ error: { code: 'INVALID_ATTACHMENT', message: 'One or more uploaded files are unavailable.' } });
+  }
+  if (imageGenerationIntent && user.plan === 'free') {
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const generatedToday = await listRecords('UserEventLog', [
+      filter('userId', user.id),
+      filter('event', 'image.generate'),
+      filter('createdAt', startOfDay.toISOString(), '>='),
+    ]);
+    if (generatedToday.length >= 5) {
+      return res.status(429).json({
+        error: {
+          code: 'IMAGE_DAILY_LIMIT_REACHED',
+          message: 'You have reached the free image generation limit for today.',
+          messageAr: 'لقد وصلت إلى الحد اليومي لإنشاء الصور في الخطة المجانية.',
+        },
+      });
+    }
   }
   const identityOnly = !regenerate
     && !editMessageId
@@ -3427,7 +3450,7 @@ app.post('/api/chat/send', rateLimiter({
     }
   }
 
-  if (!identityOnly && creditCost && !(await userRepo.debitCredits(user.id, creditCost))) {
+  if (!identityOnly && !imageGenerationIntent && creditCost && !(await userRepo.debitCredits(user.id, creditCost))) {
     return res.status(402).json({
       error: {
         code: 'INSUFFICIENT_CREDITS',
@@ -3510,7 +3533,7 @@ app.post('/api/chat/send', rateLimiter({
   });
 
   // Increment usage counter
-  if (!identityOnly) await usageRepo.increment(user.id, selectedModel, creditCost);
+  if (!identityOnly && !imageGenerationIntent) await usageRepo.increment(user.id, selectedModel, creditCost);
 
   const lastUserContext = [...contextMessages].reverse().find((item) => item.role === 'user');
   const userAttachments = pendingFiles.map((file) => ({
@@ -3600,6 +3623,150 @@ app.post('/api/chat/send', rateLimiter({
         message: assistantMessage,
       })}\n\n`);
       res.end();
+    }
+    return;
+  }
+
+  if (imageGenerationIntent) {
+    const runtimeImageProvider = getRuntimeImageProvider();
+    const envImageKey = process.env.CLEANAPIS_IMAGE_API_KEY?.trim() || process.env.CLEANAPIS_API_KEY?.trim();
+    const imageKey = envImageKey || runtimeImageProvider?.apiKey || getCleanApisConfig().apiKey;
+    if (!imageKey) {
+      if (!res.writableEnded && !res.destroyed) {
+        res.write(`data: ${JSON.stringify({
+          type: 'error',
+          error: {
+            code: 'IMAGE_GENERATION_NOT_CONFIGURED',
+            message: 'Image generation is temporarily unavailable. Please try again later.',
+            messageAr: 'إنشاء الصور غير متاح مؤقتًا. يرجى المحاولة لاحقًا.',
+          },
+        })}\n\n`);
+        res.end();
+      }
+      return;
+    }
+
+    const imageModel = await readAdminSetting(
+      'imageModel',
+      process.env.CLEANAPIS_IMAGE_MODEL?.trim() || 'cf/black-forest-labs/flux-1-schnell',
+    );
+    const imageApiBaseUrl = envImageKey
+      ? process.env.CLEANAPIS_BASE_URL?.trim() || getCleanApisConfig().baseUrl
+      : runtimeImageProvider?.baseUrl || getCleanApisConfig().baseUrl;
+    const imageEndpoint = process.env.CLEANAPIS_IMAGE_BASE_URL?.trim() || imageApiBaseUrl;
+    const imageController = new AbortController();
+    const imageTimeout = setTimeout(() => imageController.abort(), 120000);
+    const abortImageRequest = () => imageController.abort();
+    abortController.signal.addEventListener('abort', abortImageRequest, { once: true });
+    let imageFileUrl: string | null = null;
+    let attachmentId: string | null = null;
+
+    try {
+      const generated = await generateInlineImage({
+        configuredUrl: imageEndpoint,
+        apiKey: imageKey,
+        model: imageModel,
+        prompt: message,
+        signal: imageController.signal,
+      });
+      if (abortController.signal.aborted) return;
+
+      const extension = generated.mimeType === 'image/jpeg' ? 'jpg'
+        : generated.mimeType === 'image/webp' ? 'webp' : 'png';
+      attachmentId = randomUUID();
+      const fileName = `bayan-image-${Date.now()}.${extension}`;
+      imageFileUrl = await uploadLocalFile(
+        `images/${attachmentId}.${extension}`,
+        generated.bytes,
+        generated.mimeType,
+        user.id,
+      );
+      if (abortController.signal.aborted) {
+        await cleanupLocalFile(imageFileUrl, 'Could not clean up an aborted chat image');
+        imageFileUrl = null;
+        return;
+      }
+
+      const altText = message.replace(/[\[\]\\\r\n]+/g, ' ').slice(0, 180).trim() || 'Image generated by Cintra';
+      const confirmation = /[\u0600-\u06FF]/u.test(message)
+        ? 'تم إنشاء الصورة المطلوبة بناءً على وصفك عبر منصة Cintra، المطوّرة بواسطة المهندس زياد صابر.'
+        : 'I generated the requested image from your prompt using Cintra, developed by Eng. Ziad Saber.';
+      const assistantMessageId = `msg_${randomUUID()}`;
+      const assistantContent = `${confirmation}\n\n![${altText}](/api/attachments/${encodeURIComponent(attachmentId)})`;
+
+      await usageRepo.increment(user.id, imageModel, 0);
+      await createRecord('Attachment', {
+        id: attachmentId,
+        messageId: assistantMessageId,
+        fileName,
+        fileType: generated.mimeType,
+        fileSize: generated.bytes.length,
+        fileUrl: imageFileUrl,
+      });
+      const assistantMessage = await messageRepo.create({
+        id: assistantMessageId,
+        conversationId: activeConvId,
+        role: 'assistant',
+        content: assistantContent,
+        model: selectedModel,
+        tokens: estimateTokens(assistantContent),
+      });
+      imageFileUrl = null;
+      attachmentId = null;
+      recordUserEvent(user.id, 'image.generate', imageModel);
+      if (!res.writableEnded && !res.destroyed) {
+        res.write(`data: ${JSON.stringify({ type: 'token', content: assistantContent })}\n\n`);
+        res.write(`data: ${JSON.stringify({
+          type: 'done',
+          conversationId: activeConvId,
+          messageId: assistantMessageId,
+          message: assistantMessage,
+        })}\n\n`);
+        res.end();
+      }
+    } catch (error) {
+      if (imageFileUrl) {
+        await cleanupLocalFile(imageFileUrl, 'Could not clean up a failed chat image');
+        if (attachmentId) {
+          try {
+            await records('Attachment').delete(attachmentId);
+          } catch (cleanupError) {
+            console.error('Could not remove the failed chat image attachment:', cleanupError);
+          }
+        }
+      }
+      if (abortController.signal.aborted) {
+        if (!res.writableEnded && !res.destroyed) {
+          res.write(`data: ${JSON.stringify({
+            type: 'error',
+            error: {
+              code: 'IMAGE_GENERATION_TIMEOUT',
+              message: 'Image generation timed out. Please try again.',
+              messageAr: 'انتهت مهلة إنشاء الصورة. يرجى المحاولة مجددًا.',
+            },
+          })}\n\n`);
+          res.end();
+        }
+        return;
+      }
+      console.error('Chat image generation failed:', {
+        userId: user.id,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      if (!res.writableEnded && !res.destroyed) {
+        res.write(`data: ${JSON.stringify({
+          type: 'error',
+          error: {
+            code: 'IMAGE_GENERATION_FAILED',
+            message: 'Image generation failed. Please try again.',
+            messageAr: 'فشل إنشاء الصورة. يرجى المحاولة مجددًا.',
+          },
+        })}\n\n`);
+        res.end();
+      }
+    } finally {
+      clearTimeout(imageTimeout);
+      abortController.signal.removeEventListener('abort', abortImageRequest);
     }
     return;
   }

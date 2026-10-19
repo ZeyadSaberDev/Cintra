@@ -1,5 +1,14 @@
 export type ImageAspectRatio = '1:1' | '16:9' | '9:16' | '4:3';
 
+export function isImageGenerationIntent(message: string): boolean {
+  const normalized = message.normalize('NFKC').trim();
+  if (!normalized) return false;
+
+  const arabicIntent = /(?:ارسم(?:ي)?(?:\s+لي)?(?:\s+(?:صورة|رسمة|مخطط|شعار|أيقونة|خريطة|قطة|كلب|منظر|تصميم))?|صمم(?:ي)?(?:\s+لي)?(?:\s+(?:صورة|رسمة|شعار|أيقونة|تصميم))?|ول[دّد](?:\s+لي)?\s+(?:صورة|صور|رسمة|رسومات)|أنشئ(?:ي)?(?:\s+لي)?\s+(?:صورة|صور|رسمة|رسومات)|تخيل(?:ي)?(?:\s+لي)?(?:\s+(?:صورة|شكل))|صانع\s+الصور)/u;
+  const englishIntent = /\b(?:generate|create|make)\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|illustration|diagram|logo|icon|chart)\b(?!\s+(?:processing|editing|recognition|classification|segmentation|manipulation|analysis|pipeline)\b)|\bdraw\s+(?:me\s+)?(?:an?\s+)?(?!(?:conclusion|distinction|inference|comparison|parallel)\b)[a-z][\w-]{1,30}\b|\b(?:picture|photo)\s+of\b/i;
+  return arabicIntent.test(normalized) || englishIntent.test(normalized);
+}
+
 export function getImageGenerationsUrl(configuredUrl: string): string {
   const endpoint = new URL(configuredUrl.trim());
   const pathname = endpoint.pathname.replace(/\/+$/, '');
