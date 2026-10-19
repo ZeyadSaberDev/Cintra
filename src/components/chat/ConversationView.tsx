@@ -273,7 +273,7 @@ export function ConversationView({
           {VirtualMessageRow}
         </VariableSizeList>
       ) : !isVirtualized ? (
-        <div className="space-y-4 flex-1">
+        <div className="bayan-message-thread flex-1 space-y-4">
           {messages.map((msg, index) => {
             const isLastAssistant = msg.role === 'assistant' && index === messages.length - 1;
             return (

@@ -6,10 +6,20 @@ import {
   getRuntimeSearchProvider,
   getRuntimeServiceProvider,
   getPublicModelCatalog,
+  imageContentPart,
   isPublicModelId,
   setRuntimeProviderRouting,
   setRuntimeServiceApiRoutes,
 } from '../lib/ai/provider.js';
+
+test('encodes image bytes as an OpenAI-compatible multimodal data URL', () => {
+  assert.deepEqual(imageContentPart('image/png', Buffer.from('image-bytes')), {
+    type: 'image_url',
+    image_url: { url: 'data:image/png;base64,aW1hZ2UtYnl0ZXM=' },
+  });
+  assert.throws(() => imageContentPart('text/plain', Buffer.from('not an image')), /Unsupported image MIME type/);
+  assert.throws(() => imageContentPart('image/png', Buffer.alloc(0)), /empty file/);
+});
 
 test('publishes enabled custom models under Cintra labels without exposing provider model IDs', () => {
   setRuntimeProviderRouting([

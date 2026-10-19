@@ -679,7 +679,7 @@ export function ChatInput({
                   setFiles((current) => current.filter((item) => item !== file));
                   setRemovingImages((current) => current.filter((item) => item !== file));
                 }}
-                className={`bayan-image-thumbnail group/image relative h-[72px] w-[72px] overflow-hidden rounded-xl border border-neutral-200 shadow-sm dark:border-white/15 ${removingImages.includes(file) ? 'is-removing' : ''}`}
+                className={`bayan-image-thumbnail group/image relative h-14 w-14 overflow-hidden rounded-xl border border-neutral-200 shadow-sm dark:border-white/15 ${removingImages.includes(file) ? 'is-removing' : ''}`}
               >
                 <img src={previews[index]} alt={file.name} className="h-full w-full object-cover" decoding="async" />
                 <button
@@ -725,7 +725,7 @@ export function ChatInput({
                 <span className="bayan-effort-label">{currentLang === 'ar' ? `الجهد: ${{ low: 'منخفض', medium: 'متوسط', high: 'مرتفع' }[reasoningEffort]}` : `Effort: ${reasoningEffort[0].toUpperCase()}${reasoningEffort.slice(1)}`}</span>
               </button>
               {effortOpen && (
-                <div role="menu" className="absolute bottom-full left-0 z-50 mb-2 min-w-36 rounded-xl border border-neutral-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-neutral-900">
+                <div role="menu" className="bayan-effort-menu absolute bottom-full left-0 z-50 mb-2 min-w-36 rounded-xl border border-neutral-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-neutral-900">
                   {(['low', 'medium', 'high'] as const).map((effort) => (
                     <button
                       key={effort}

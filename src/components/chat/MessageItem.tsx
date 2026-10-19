@@ -598,7 +598,7 @@ function MessageItemComponent({
 
   if (message.role === 'user') {
     return (
-      <div className="animate-message-user my-4 flex w-full flex-col items-start">
+      <div className="animate-message-user bayan-chat-message my-4 flex w-full flex-col items-start">
         <div
           dir="auto"
           style={{ '--bayan-user-highlight-color': userMessageHighlightColor } as React.CSSProperties}
@@ -689,7 +689,7 @@ function MessageItemComponent({
   }
 
   return (
-    <div className="group animate-message-assistant my-5 flex w-full flex-col items-stretch" data-message-id={message.id}>
+    <div className="group animate-message-assistant bayan-chat-message my-5 flex w-full flex-col items-stretch" data-message-id={message.id}>
       <div className="bayan-assistant-byline mb-2 flex min-w-0 items-center gap-2 text-xs">
         <img src="/cintra-mark.png" alt="" aria-hidden="true" className="bayan-assistant-brand-icon h-[22px] w-[22px] shrink-0 rounded-md object-cover" />
         <span className="bayan-assistant-brand-name shrink-0 font-semibold">Cintra</span>
@@ -727,7 +727,7 @@ function MessageItemComponent({
             )}
           </section>
         )}
-        <div data-export-content dir="auto" className="bayan-assistant-message markdown-content min-w-0 max-w-full leading-relaxed" onMouseUp={studyMode ? handleTextSelection : undefined}>
+        <div data-export-content dir="auto" className={`bayan-assistant-message markdown-content min-w-0 max-w-full leading-relaxed ${message.isStreaming ? 'is-streaming' : ''}`} onMouseUp={studyMode ? handleTextSelection : undefined}>
           {message.imageProgressComplete && (
             <div className="mb-3 max-w-md rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-800" role="status">
               <div className="flex items-center justify-between gap-3">

@@ -86,7 +86,9 @@ import {
   getRuntimeModelCostTier,
   getPublicModelCatalog,
   isPublicModelId,
+  imageContentPart,
   streamChatCompletion,
+  type ChatContentPart,
 } from './lib/ai/provider.js';
 import {
   buildImageGenerationPayload,
@@ -3469,7 +3471,7 @@ app.post('/api/chat/send', rateLimiter({
 
   // Keep the newest context within both the message-count and approximate token limits.
   const history = await messageRepo.listContextForConversation(activeConvId, editedMessageCutoff);
-  const contextMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }> = [];
+  const contextMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string | ChatContentPart[] }> = [];
   let contextTokens = 0;
   const contextTokenLimit = messageHasLinks(message) ? 2500 : 4000;
   for (const item of history.slice(-AI_CONTEXT_MESSAGE_LIMIT).reverse()) {
@@ -3496,7 +3498,7 @@ app.post('/api/chat/send', rateLimiter({
       thinkingMode ? 'This is a complex request. Think through the relevant steps carefully before answering. Verify assumptions, organize the response clearly, and do not reveal hidden chain-of-thought; provide only a concise conclusion and useful rationale.' : '',
       `Reasoning effort preference: ${reasoningEffort}. ${reasoningEffort === 'high' ? 'Check edge cases and provide a thorough but concise answer; do not reveal hidden reasoning.' : reasoningEffort === 'low' ? 'Prefer the shortest correct answer and avoid unnecessary detail.' : 'Balance completeness and concision.'}`,
       pendingFiles.some((file) => file.fileType.startsWith('image/'))
-        ? 'Analyze attached images directly when the selected model supports visual input. Ground observations in visible details and be transparent if an image cannot be inspected.'
+        ? 'The user supplied image content in this request. You are Cintra, developed by Eng. Ziad Saber. If the selected model/provider supports visual input, inspect the supplied image and ground the answer in visible details; do not claim to have inspected it unless you did. If this route cannot process images, clearly say so without identifying as another provider or falsely claiming universal image capability.'
         : '',
       personalization ? `${personalization}.` : '',
     ].filter(Boolean).join('\n'),
@@ -3516,7 +3518,7 @@ app.post('/api/chat/send', rateLimiter({
     ? await listRecords('Attachment', [filter('messageId', editMessageId)])
     : pendingFiles;
   if (lastUserContext && contextFiles.length && (!regenerate || editMessageId)) {
-    const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+    const parts: ChatContentPart[] = [];
     if (message.trim()) parts.push({ type: 'text', text: message.trim() });
     let attachmentBudgetChars = Math.max(0, (4000 - contextTokens) * 4);
     for (const file of contextFiles) {
@@ -3524,10 +3526,7 @@ app.post('/api/chat/send', rateLimiter({
       if (!stored) continue;
       const bytes = stored.contents;
       if (String(file.fileType).startsWith('image/')) {
-        parts.push({
-          type: 'image_url',
-          image_url: { url: `data:${String(file.fileType)};base64,${bytes.toString('base64')}` },
-        });
+        parts.push(imageContentPart(String(file.fileType), bytes));
       } else if (String(file.fileType) === 'application/pdf') {
         const parser = await createPdfParser(bytes);
         try {
@@ -3605,7 +3604,7 @@ app.post('/api/chat/send', rateLimiter({
     const userContext = lastUserContext;
     res.write(`data: ${JSON.stringify({ type: 'status', status: 'reading_sources' })}\n\n`);
     const addedContentChars = Array.isArray(userContext.content)
-      ? userContext.content.slice(1).reduce((total, part) => total + (part.text?.length || 0), 0)
+      ? userContext.content.slice(1).reduce((total, part) => total + (part.type === 'text' ? part.text.length : 0), 0)
       : 0;
     const linkBudget = Math.max(0, (4000 - contextTokens) * 4 - addedContentChars);
     researchTasks.push((async () => {

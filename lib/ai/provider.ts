@@ -13,9 +13,26 @@ import { AUTO_CINTRA_ROUTE_PREFIX, CINTRA_IDENTITY_POLICY, CINTRA_MODELS, isCint
  * Supports OpenAI-compatible streaming SSE, abortion, and multi-model configuration.
  */
 
+export type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
-  content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
+  content: string | ChatContentPart[];
+}
+
+export function imageContentPart(mimeType: string, bytes: Uint8Array): ChatContentPart {
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(`Unsupported image MIME type: ${mimeType}`);
+  }
+  if (!bytes.byteLength) {
+    throw new Error('Cannot create image content from an empty file.');
+  }
+  return {
+    type: 'image_url',
+    image_url: { url: `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}` },
+  };
 }
 
 export interface ModelInfo {
@@ -544,6 +561,20 @@ export async function streamChatCompletion({
     role: 'system',
     content: CINTRA_IDENTITY_POLICY,
   });
+  const includesImageInput = messages.some((message) => (
+    message.role === 'user'
+    && Array.isArray(message.content)
+    && message.content.some((part) => part.type === 'image_url')
+  ));
+  if (includesImageInput) {
+    preparedMessages.push({
+      role: 'system',
+      content: [
+        'The user provided image content to Cintra, developed by Eng. Ziad Saber. When this model/provider route supports visual input, inspect the supplied image and answer from its visible contents.',
+        'Do not identify yourself as an underlying provider or generically claim to be a text-only model. Never claim to have seen or analyzed an image unless the current route actually processed it; if this route cannot inspect the image, explain that limitation honestly as Cintra.',
+      ].join(' '),
+    });
+  }
   preparedMessages.push(...messages.filter((message) => message.role !== 'system'));
 
   const payload = {
