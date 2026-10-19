@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { LocalRepository, runLocalTransaction } from '../db/repository.js';
 import { getChatCompletionsUrl } from './endpoints.js';
 import { runProviderDiagnostics } from './providerDiagnostics.js';
+import { getModelCost, type ModelCostTier } from '../config/modelCosts.js';
 import type { ServiceApiCapability, ServiceApiRoutes } from './serviceApiRoutes.js';
 import { BAYAN_ONE_MODEL_ID, BAYAN_ONE_MODEL_NAME, resolveBayanOneRoutes, shouldFallbackBayanOne, type BayanOneConfig } from './bayanOne.js';
 import { AUTO_CINTRA_ROUTE_PREFIX, CINTRA_IDENTITY_POLICY, CINTRA_MODELS, isCintraModelId, resolveCintraFusionModel, resolveCintraModelId, resolveCintraRouteCandidates, type CintraModelId, type CintraModelRoutes } from './cintraModels.js';
@@ -42,6 +43,7 @@ export interface ModelInfo {
   group?: string;
   description?: string;
   badge?: string;
+  costTier?: ModelCostTier;
 }
 
 type RuntimeModelRoute = {
@@ -63,6 +65,14 @@ type RuntimeApiProvider = {
   isActive: boolean;
   priority: number;
 };
+
+function normalizeCostTier(value?: string): ModelCostTier | undefined {
+  const normalized = value?.toLowerCase();
+  if (normalized === 'high') return 'High';
+  if (normalized === 'medium') return 'Medium';
+  if (normalized === 'low') return 'Low';
+  return undefined;
+}
 
 let runtimeApiOverride: { apiKey: string; baseUrl: string } | null = null;
 let runtimeEnabledModels: string[] | null = null;
@@ -94,13 +104,17 @@ export function getPublicModelCatalog(): ModelInfo[] {
     .filter((model) => runtimeProviders?.some((provider) => (
       provider.id === model.apiId && provider.isActive && provider.apiKey.trim()
     )))
-    .map((model) => ({
-      id: String(model.publicId),
-      name: String(model.publicName),
-      provider: 'Cintra' as const,
-      group: 'Cintra',
-      description: 'Cintra model',
-    }));
+    .map((model) => {
+      const costTier = normalizeCostTier(model.costTier);
+      return {
+        id: String(model.publicId),
+        name: String(model.publicName),
+        provider: 'Cintra' as const,
+        group: 'Cintra',
+        description: 'Cintra model',
+        ...(costTier ? { costTier } : {}),
+      };
+    });
   return [
     ...CINTRA_MODELS.map(({ id, name, description }) => ({
       id,
@@ -108,6 +122,7 @@ export function getPublicModelCatalog(): ModelInfo[] {
       description,
       provider: 'Cintra' as const,
       group: 'Cintra',
+      costTier: getModelCost(id).tier,
     })),
     ...customModels,
   ];

@@ -9,6 +9,7 @@ import { z } from 'zod';
 import multer from 'multer';
 import Stripe from 'stripe';
 import { PDFDocument as EditablePdfDocument } from 'pdf-lib';
+import { extractOfficeDocumentText, getOfficeFileType, isOfficeZipSignature } from './lib/chat/officeDocuments.js';
 import {
   initDb,
   userRepo,
@@ -101,6 +102,7 @@ import {
 } from './lib/ai/imageGeneration.js';
 import { isCintraModelId } from './lib/ai/cintraModels.js';
 import { shouldUseThinkingMode } from './lib/chat/complexity.js';
+import { buildResponsePolicy } from './lib/ai/responsePolicy.js';
 import { getModelCost } from './lib/config/modelCosts.js';
 import { AI_CONTEXT_MESSAGE_LIMIT } from './lib/chat/messageHistory.js';
 import { hasReachedDailyMessageLimit, ownsConversation, resolveDailyMessageLimit } from './lib/chat/requestPolicy.js';
@@ -1691,6 +1693,9 @@ const uploadTypes: Record<string, { mime: string; extension: string }> = {
   '.txt': { mime: 'text/plain', extension: '.txt' },
   '.csv': { mime: 'text/csv', extension: '.csv' },
   '.json': { mime: 'application/json', extension: '.json' },
+  '.docx': { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', extension: '.docx' },
+  '.xlsx': { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', extension: '.xlsx' },
+  '.pptx': { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', extension: '.pptx' },
 };
 
 function estimateTokens(text: string): number {
@@ -1849,7 +1854,11 @@ app.post('/api/upload', rateLimiter({
   }
 
   await cleanupExpiredPendingUploads();
-  const validatedFiles: Array<{ file: Express.Multer.File; allowed: { mime: string; extension: string } }> = [];
+  const validatedFiles: Array<{
+    file: Express.Multer.File;
+    allowed: { mime: string; extension: string };
+    officeExtractedText?: string;
+  }> = [];
   for (const file of files) {
     const extension = path.extname(file.originalname).toLowerCase();
     const allowed = uploadTypes[extension];
@@ -1868,6 +1877,8 @@ app.post('/api/upload', rateLimiter({
             ? signature.toString('ascii', 0, 4) === 'RIFF' && signature.toString('ascii', 8, 12) === 'WEBP'
             : extension === '.pdf'
               ? signature.toString('ascii', 0, 5) === '%PDF-'
+              : getOfficeFileType(extension)
+                ? isOfficeZipSignature(signature)
               : !file.buffer.includes(0);
     if (!signatureValid) {
       return res.status(415).json({ error: { code: 'INVALID_FILE', message: 'The file could not be uploaded. Check the file and try again.' } });
@@ -1880,7 +1891,33 @@ app.post('/api/upload', rateLimiter({
       }
     }
 
-    validatedFiles.push({ file, allowed });
+    const officeType = getOfficeFileType(extension);
+    let officeExtractedText: string | undefined;
+    if (officeType) {
+      try {
+        officeExtractedText = await extractOfficeDocumentText(file.buffer, officeType);
+      } catch (error) {
+        console.error(`Could not parse uploaded Office document (${extension}):`, error);
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_OFFICE_DOCUMENT',
+            message: 'The Office document could not be read. Check that it is a valid, unencrypted DOCX, XLSX, or PPTX file.',
+            messageAr: 'تعذرت قراءة ملف Office. تحقق من أنه ملف DOCX أو XLSX أو PPTX صالح وغير مشفر.',
+          },
+        });
+      }
+      if (!officeExtractedText) {
+        return res.status(400).json({
+          error: {
+            code: 'EMPTY_OFFICE_DOCUMENT',
+            message: 'No readable text was found in the Office document.',
+            messageAr: 'لم يتم العثور على نص قابل للقراءة في مستند Office.',
+          },
+        });
+      }
+    }
+
+    validatedFiles.push({ file, allowed, officeExtractedText });
   }
   recordUserEvent(user.id, 'file.upload', `${files.length} file(s)`);
 
@@ -1891,7 +1928,7 @@ app.post('/api/upload', rateLimiter({
     size: number;
     fileUrl: string;
   };
-  const uploadResults = await Promise.allSettled<SavedUpload>(validatedFiles.map(async ({ file, allowed }) => {
+  const uploadResults = await Promise.allSettled<SavedUpload>(validatedFiles.map(async ({ file, allowed, officeExtractedText }) => {
     const id = randomUUID();
     const fileName = `${id}${allowed.extension}`;
     const fileUrl = await uploadLocalFile(`uploads/${fileName}`, file.buffer, allowed.mime, user.id);
@@ -1899,6 +1936,7 @@ app.post('/api/upload', rateLimiter({
       await createRecord('PendingUpload', {
         id, userId: user.id, fileName: path.basename(file.originalname), fileType: allowed.mime,
         fileSize: file.size, fileUrl, createdAt: new Date().toISOString(),
+        ...(officeExtractedText ? { officeExtractedText } : {}),
       });
     } catch (error) {
       await cleanupLocalFile(fileUrl, 'Pending upload cleanup failed');
@@ -3492,6 +3530,7 @@ app.post('/api/chat/send', rateLimiter({
       await records('Attachment').create(String(file.id), {
         messageId: savedUserMsg.id, fileName: file.fileName, fileType: file.fileType,
         fileSize: file.fileSize, fileUrl: file.fileUrl,
+        ...(typeof file.officeExtractedText === 'string' ? { officeExtractedText: file.officeExtractedText } : {}),
       });
     }
     for (const file of pendingFiles) await records('PendingUpload').delete(file.id);
@@ -3519,17 +3558,12 @@ app.post('/api/chat/send', rateLimiter({
   ].filter(Boolean).join(', ');
   contextMessages.unshift({
     role: 'system',
-    content: [
-      'Answer in the user’s language. Be honest about available tools; do not claim unavailable capabilities. Use natural, context-appropriate emojis to make friendly responses expressive, but keep professional or technical answers restrained and never replace useful text with emoji.',
-      'Prioritize fast, direct responses: lead with the answer, keep routine replies concise, and provide more detail only when requested or needed for correctness.',
-      'When answering a question, bold the direct answer. In summaries, use concise bullets and bold only the most important facts or takeaways; do not bold entire paragraphs.',
-      thinkingMode ? 'This is a complex request. Think through the relevant steps carefully before answering. Verify assumptions, organize the response clearly, and do not reveal hidden chain-of-thought; provide only a concise conclusion and useful rationale.' : '',
-      `Reasoning effort preference: ${reasoningEffort}. ${reasoningEffort === 'high' ? 'Check edge cases and provide a thorough but concise answer; do not reveal hidden reasoning.' : reasoningEffort === 'low' ? 'Prefer the shortest correct answer and avoid unnecessary detail.' : 'Balance completeness and concision.'}`,
-      pendingFiles.some((file) => file.fileType.startsWith('image/'))
-        ? 'The user supplied image content in this request. You are Cintra, developed by Eng. Ziad Saber. If the selected model/provider supports visual input, inspect the supplied image and ground the answer in visible details; do not claim to have inspected it unless you did. If this route cannot process images, clearly say so without identifying as another provider or falsely claiming universal image capability.'
-        : '',
-      personalization ? `${personalization}.` : '',
-    ].filter(Boolean).join('\n'),
+    content: buildResponsePolicy({
+      thinkingMode,
+      reasoningEffort,
+      hasImageAttachment: pendingFiles.some((file) => file.fileType.startsWith('image/')),
+      personalization,
+    }),
   });
 
   // Increment usage counter
@@ -3565,6 +3599,10 @@ app.post('/api/chat/send', rateLimiter({
         } finally {
           await parser.destroy();
         }
+      } else if (typeof file.officeExtractedText === 'string') {
+        const extractedText = file.officeExtractedText.slice(0, attachmentBudgetChars);
+        attachmentBudgetChars -= extractedText.length;
+        parts.push({ type: 'text', text: `\n\n[Attached Office document: ${String(file.fileName)}]\n${extractedText}` });
       } else {
         const extractedText = bytes.toString('utf8').slice(0, attachmentBudgetChars);
         attachmentBudgetChars -= extractedText.length;

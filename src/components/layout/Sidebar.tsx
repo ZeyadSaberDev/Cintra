@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useBayanAlert } from '../../contexts/AlertContext';
+import { getMotionTransition, motionTiming } from '../../lib/motion';
 import {
   SquarePen,
   Search,
@@ -26,7 +28,12 @@ import {
   Share2,
   Check,
   X,
+  ShieldCheck,
+  FileText,
+  Cpu,
+  Palette,
 } from 'lucide-react';
+import type { WorkspaceSection } from './WorkspacePage';
 
 export interface SidebarConversation {
   id: string;
@@ -51,6 +58,8 @@ interface SidebarProps {
   onOpenAgent?: () => void;
   onOpenImages?: () => void;
   onOpenPlans?: () => void;
+  activeWorkspaceSection?: WorkspaceSection | null;
+  onOpenWorkspaceSection?: (section: WorkspaceSection) => void;
 }
 
 export function Sidebar({
@@ -67,10 +76,13 @@ export function Sidebar({
   onOpenAgent,
   onOpenImages,
   onOpenPlans,
+  activeWorkspaceSection = null,
+  onOpenWorkspaceSection,
 }: SidebarProps) {
   const { user, logout } = useAuth();
   const { t, isRtl } = useLanguage();
   const showAlert = useBayanAlert();
+  const reduceMotion = useReducedMotion();
   const [searchQuery, setSearchQuery] = useState('');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -171,20 +183,24 @@ export function Sidebar({
 
     return (
       <div key={chat.id} className="relative group">
-        <div
-          onClick={() => onSelectChat(chat.id)}
-          className={`bayan-sidebar-conversation w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition-colors cursor-pointer text-left rtl:text-right ${
+        <div className="flex items-center">
+          <button
+            type="button"
+            aria-current={isActive ? 'page' : undefined}
+            onClick={() => onSelectChat(chat.id)}
+            className={`bayan-sidebar-conversation inline-flex min-w-0 flex-1 w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-xs transition-colors cursor-pointer rtl:text-right ${
             isActive
               ? 'is-active bg-neutral-100 text-neutral-900 font-medium'
               : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-50'
           }`}
-        >
-          <div className="flex items-center gap-1.5 truncate flex-1 min-w-0 pr-1 rtl:pr-0 rtl:pl-1">
+          >
+          <span className="flex items-center gap-1.5 truncate">
             {Number(chat.isPinned) === 1 && (
               <Pin size={11} className="text-neutral-400 shrink-0 fill-neutral-400" />
             )}
             <span className="truncate">{chat.title}</span>
-          </div>
+          </span>
+          </button>
 
           <button
             type="button"
@@ -193,8 +209,10 @@ export function Sidebar({
               setMenuConvId(isMenuOpen ? null : chat.id);
             }}
             className={`p-1 rounded-md text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200/60 transition-opacity ${
-              isMenuOpen ? 'opacity-100 bg-neutral-200/60 text-neutral-900' : 'opacity-0 group-hover:opacity-100'
+              isMenuOpen ? 'opacity-100 bg-neutral-200/60 text-neutral-900' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
             }`}
+            aria-label={isRtl ? `إجراءات ${chat.title}` : `Actions for ${chat.title}`}
+            title={isRtl ? 'إجراءات المحادثة' : 'Conversation actions'}
           >
             <MoreHorizontal size={14} />
           </button>
@@ -202,7 +220,12 @@ export function Sidebar({
 
         {/* Conversation Action Menu */}
         {isMenuOpen && (
-          <div className="absolute end-2 top-8 w-36 bg-white rounded-xl shadow-lg border border-[#e5e5e5] p-1 z-40 space-y-0.5 animate-in fade-in zoom-in-95 duration-100">
+          <motion.div
+            initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={getMotionTransition(Boolean(reduceMotion), motionTiming.micro)}
+            className="absolute end-2 top-8 z-40 w-36 space-y-0.5 rounded-xl border border-[#e5e5e5] bg-white p-1 shadow-lg"
+          >
             <button
               type="button"
               onClick={() => handleStartRename(chat)}
@@ -253,7 +276,7 @@ export function Sidebar({
                 <span>{t('deleteConversation')}</span>
               </button>
             )}
-          </div>
+          </motion.div>
         )}
       </div>
     );
@@ -296,6 +319,30 @@ export function Sidebar({
             <button type="button" onClick={() => onOpenImages?.()} className="bayan-sidebar-nav-item flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
               <Images size={17} /><span>{isRtl ? 'الصور' : 'Images'}</span>
             </button>
+            {onOpenWorkspaceSection && (
+              <>
+                <div className="bayan-sidebar-section-label px-3 pb-1 pt-4">{isRtl ? 'التطوير' : 'Development'}</div>
+                {([
+                  { id: 'stability', icon: ShieldCheck, title: isRtl ? 'الاستقرار والتحقق' : 'Stability & verification', hint: isRtl ? 'فحص اتصال الخدمة' : 'Check service connectivity' },
+                  { id: 'documents', icon: FileText, title: isRtl ? 'دعم المستندات' : 'Office document support', hint: isRtl ? 'الصيغ المدعومة' : 'Supported attachment formats' },
+                  { id: 'models', icon: Cpu, title: isRtl ? 'قدرات النماذج' : 'AI model capabilities', hint: isRtl ? 'النماذج المهيأة وقدراتها المعلنة' : 'Configured models and declared capabilities' },
+                  { id: 'design', icon: Palette, title: isRtl ? 'التجربة والتصميم' : 'Experience & visual design', hint: isRtl ? 'المظهر وإمكانية الوصول' : 'Theme and accessibility settings' },
+                ] satisfies Array<{ id: WorkspaceSection; icon: typeof ShieldCheck; title: string; hint: string }>).map(({ id, icon: Icon, title, hint }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => onOpenWorkspaceSection(id)}
+                    aria-current={activeWorkspaceSection === id ? 'page' : undefined}
+                    aria-label={`${title}. ${hint}`}
+                    title={`${title} — ${hint}`}
+                    className={`bayan-sidebar-nav-item bayan-sidebar-workspace-item flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors ${activeWorkspaceSection === id ? 'is-active' : ''}`}
+                  >
+                    <Icon size={17} aria-hidden="true" />
+                    <span className="truncate">{title}</span>
+                  </button>
+                ))}
+              </>
+            )}
             <button type="button" disabled title={isRtl ? 'قريباً' : 'Coming soon'} className="bayan-sidebar-nav-item is-disabled flex w-full items-center gap-3 rounded-xl px-3 text-start text-sm transition-colors">
               <Library size={17} /><span className="flex-1">{isRtl ? 'المكتبة' : 'Library'}</span><span className="bayan-sidebar-soon">{isRtl ? 'قريباً' : 'Soon'}</span>
             </button>
@@ -465,7 +512,12 @@ export function Sidebar({
 
         {/* User Popup Dropdown Menu */}
         {userMenuOpen && (
-          <div className="bayan-account-menu absolute bottom-16 inset-x-3 rounded-2xl p-1.5 z-40 space-y-1">
+          <motion.div
+            initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 5, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={getMotionTransition(Boolean(reduceMotion), motionTiming.component)}
+            className="bayan-account-menu absolute inset-x-3 bottom-16 z-40 space-y-1 rounded-2xl p-1.5"
+          >
             {user.isGuest ? (
               <button
                 type="button"
@@ -531,7 +583,7 @@ export function Sidebar({
               <LogOut size={14} />
               <span>{t('logout')}</span>
             </button>
-          </div>
+          </motion.div>
         )}
       </div>
     </aside>

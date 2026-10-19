@@ -1,18 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ChevronDown, Search, Check } from 'lucide-react';
-import { ModelInfo } from '../../../lib/ai/provider';
-import { getModelCost } from '../../../lib/config/modelCosts';
-import { getModelFamily, groupModelsByFamily } from '../../lib/modelGrouping';
+import { ChevronDown, Search, Check, Loader2 } from 'lucide-react';
+import { MODEL_COSTS } from '../../../lib/config/modelCosts';
+import { getModelFamily, groupModelsByFamily, normalizePublicModelCatalog, type GroupableModel } from '../../lib/modelGrouping';
 import { useLanguage } from '../../contexts/LanguageContext';
-
-const compactModelNames: Record<string, string> = {
-  'cintra-core-v1': '🚀 Core',
-  'cintra-research': '🔍 Research',
-  'cintra-creative': '🎨 Creative',
-  'cintra-analyst': '💼 Analyst',
-};
 
 interface ModelSelectorProps {
   selectedModel: string;
@@ -21,11 +13,13 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ selectedModel, onSelectModel, placement = 'below' }: ModelSelectorProps) {
-  const { t } = useLanguage();
+  const { t, currentLang } = useLanguage();
   const reduceMotion = useReducedMotion();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [models, setModels] = useState<GroupableModel[]>([]);
+  const [modelCatalogStatus, setModelCatalogStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [catalogRetry, setCatalogRetry] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -70,26 +64,20 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
         if (!res.ok) throw new Error(`Unable to load available models (${res.status}).`);
         return res.json();
       })
-      .then((data) => {
-        if (data.models && Array.isArray(data.models)) {
-          setModels(data.models);
+      .then((data: unknown) => {
+        if (!data || typeof data !== 'object' || !Array.isArray((data as { models?: unknown }).models)) {
+          throw new Error('The model catalog response is invalid.');
         }
+        setModels(normalizePublicModelCatalog((data as { models: unknown }).models));
+        setModelCatalogStatus('ready');
       })
       .catch((error: unknown) => {
         if (error instanceof Error && error.name === 'AbortError') return;
-        if (models.length) {
-          console.error('Model selector refresh failed:', error);
-          return;
-        }
-        setModels([
-          { id: 'cintra-core-v1', name: '🚀 Cintra Core v1', provider: 'Cintra' },
-          { id: 'cintra-research', name: '🔍 Cintra Research', provider: 'Cintra' },
-          { id: 'cintra-creative', name: '🎨 Cintra Creative', provider: 'Cintra' },
-          { id: 'cintra-analyst', name: '💼 Cintra Analyst', provider: 'Cintra' },
-        ]);
+        console.error('Could not load the configured model catalog:', error);
+        setModelCatalogStatus('error');
       });
     return () => controller.abort();
-  }, [isOpen, placement]);
+  }, [catalogRetry]);
 
   // Close on outside click
   useEffect(() => {
@@ -128,9 +116,27 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
   const groupedModels = groupModelsByFamily(filteredModels);
 
   const currentModelObj = models.find((m) => m.id === selectedModel);
-  const displayName = currentModelObj ? currentModelObj.name : selectedModel || '🚀 Cintra Core v1';
-  const compactDisplayName = compactModelNames[selectedModel] || displayName;
-  const currentCost = getModelCost(selectedModel);
+  const displayName = currentModelObj?.name || selectedModel || t('modelSelector');
+  const currentCost = currentModelObj?.costTier ? MODEL_COSTS[currentModelObj.costTier] : null;
+  const handleOptionKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    if (!(event.target instanceof HTMLElement)) return;
+    const options = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') || []);
+    if (!options.length) return;
+    const focusedIndex = options.indexOf(event.target as HTMLButtonElement);
+    const fromSearch = event.target instanceof HTMLInputElement;
+    if (!fromSearch && focusedIndex < 0) return;
+    event.preventDefault();
+    const selectedIndex = options.findIndex((option) => option.getAttribute('aria-selected') === 'true');
+    const nextIndex = fromSearch
+      ? selectedIndex >= 0 ? selectedIndex : 0
+      : event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? options.length - 1
+          : (focusedIndex + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+    options[nextIndex]?.focus();
+  };
 
   return (
     <div className="relative" ref={containerRef}>
@@ -139,16 +145,21 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
         type="button"
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        aria-busy={modelCatalogStatus === 'loading'}
         onClick={() => setIsOpen((open) => !open)}
-        title={`${displayName} · ${t(`${currentCost.tier.toLowerCase()}Tier`)} · ${t('modelCostTooltip', { credits: currentCost.credits })}`}
+        title={currentCost
+          ? `${displayName} · ${t(`${currentCost.tier.toLowerCase()}Tier`)} · ${t('modelCostTooltip', { credits: currentCost.credits })}`
+          : displayName}
         className="bayan-model-trigger flex h-8 max-w-[min(46vw,290px)] min-w-0 items-center gap-1.5 rounded-full border border-[#e5e5e5] bg-white px-2 text-xs font-medium text-neutral-800 shadow-xs transition-colors hover:bg-neutral-50 sm:max-w-[min(60vw,290px)] sm:px-3"
       >
         <span className="bayan-model-name min-w-0 truncate max-w-[130px] sm:max-w-[200px]">{displayName}</span>
-        <span className="bayan-model-compact-name hidden shrink-0">{compactDisplayName}</span>
-        <span className={`bayan-model-cost flex shrink-0 items-center gap-1 ${currentCost.colorClass}`}>
-          <span aria-hidden="true">{currentCost.icon}</span>
-          <span className="bayan-model-cost-label">{t(`${currentCost.tier.toLowerCase()}Tier`)}</span>
-        </span>
+        <span className="bayan-model-compact-name hidden min-w-0 shrink-0 truncate">{displayName}</span>
+        {currentCost && (
+          <span className={`bayan-model-cost flex shrink-0 items-center gap-1 ${currentCost.colorClass}`}>
+            <span aria-hidden="true">{currentCost.icon}</span>
+            <span className="bayan-model-cost-label">{t(`${currentCost.tier.toLowerCase()}Tier`)}</span>
+          </span>
+        )}
         <ChevronDown size={14} className="text-neutral-500 shrink-0" />
       </button>
 
@@ -163,6 +174,10 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: window.innerWidth <= 640 ? 18 : 8, scale: 0.98 }}
           transition={{ duration: reduceMotion ? 0.01 : 0.2, ease: [0.2, 0.8, 0.2, 1] }}
+          role="dialog"
+          aria-label={currentLang === 'ar' ? 'اختيار النموذج' : 'Choose a model'}
+          aria-busy={modelCatalogStatus === 'loading'}
+          onKeyDown={handleOptionKeyDown}
           className="bayan-model-menu rounded-xl shadow-xl border z-[100] flex flex-col overflow-hidden"
         >
           {/* Search Header */}
@@ -180,8 +195,29 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-            {groupedModels.length === 0 ? (
+          <div
+            className="min-h-0 flex-1 overflow-y-auto p-1.5"
+            role="listbox"
+            aria-label={t('modelSelector')}
+            aria-busy={modelCatalogStatus === 'loading'}
+          >
+            {modelCatalogStatus === 'loading' ? (
+              <div className="flex items-center justify-center gap-2 p-5 text-xs text-neutral-500" role="status">
+                <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                <span>{currentLang === 'ar' ? 'جارٍ تحميل النماذج…' : 'Loading configured models…'}</span>
+              </div>
+            ) : modelCatalogStatus === 'error' ? (
+              <div className="space-y-3 p-4 text-center text-xs text-neutral-500" role="alert">
+                <p>{currentLang === 'ar' ? 'تعذر تحميل النماذج المتاحة.' : 'Could not load available models.'}</p>
+                <button
+                  type="button"
+                  onClick={() => { setModelCatalogStatus('loading'); setCatalogRetry((attempt) => attempt + 1); }}
+                  className="rounded-lg border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 transition hover:bg-neutral-50"
+                >
+                  {currentLang === 'ar' ? 'إعادة المحاولة' : 'Retry'}
+                </button>
+              </div>
+            ) : groupedModels.length === 0 ? (
               <div className="p-4 text-center text-xs text-neutral-400">{t('noMatchingModels')}</div>
             ) : (
               groupedModels.map(({ family, models: familyModels }) => (
@@ -191,7 +227,7 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
                   </div>
                   {familyModels.map((m) => {
                     const isSelected = m.id === selectedModel;
-                    const cost = getModelCost(m.id);
+                    const cost = m.costTier ? MODEL_COSTS[m.costTier] : null;
                     return (
                       <button
                         key={m.id}
@@ -218,10 +254,12 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
                             <span className="block truncate">{m.name}</span>
                             {m.description && <span className="mt-0.5 block truncate text-[10px] font-normal text-neutral-400">{m.description}</span>}
                           </span>
-                          <span className={`ml-auto flex shrink-0 items-center gap-1 pl-2 text-[10px] ${cost.colorClass}`}>
-                            <span aria-hidden="true">{cost.icon}</span>
-                            <span>{t(`${cost.tier.toLowerCase()}Tier`)}</span>
-                          </span>
+                          {cost && (
+                            <span className={`ml-auto flex shrink-0 items-center gap-1 pl-2 text-[10px] ${cost.colorClass}`}>
+                              <span aria-hidden="true">{cost.icon}</span>
+                              <span>{t(`${cost.tier.toLowerCase()}Tier`)}</span>
+                            </span>
+                          )}
                         </div>
                         {isSelected && <Check size={14} className="text-neutral-900 shrink-0" />}
                       </button>

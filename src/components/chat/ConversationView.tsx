@@ -73,7 +73,9 @@ function VirtualMessageRow({ index, style, data }: ListChildComponentProps<Virtu
           onRegenerate={index === data.messages.length - 1 ? data.onRegenerate : undefined}
           onEditMessage={!data.isStreaming ? data.onEditMessage : undefined}
           onFeedback={data.onFeedback}
-          onSendSuggestedReply={data.onSendSuggestedReply}
+          onSendSuggestedReply={index === data.messages.length - 1 && message.role === 'assistant' && !message.isStreaming
+            ? data.onSendSuggestedReply
+            : undefined}
         />
       </div>
     </div>
@@ -294,7 +296,9 @@ export function ConversationView({
                 onRegenerate={isLastAssistant && !isStreaming ? onRegenerate : undefined}
                 onEditMessage={!isStreaming ? onEditMessage : undefined}
                 onFeedback={onFeedback}
-                onSendSuggestedReply={onSendSuggestedReply}
+                onSendSuggestedReply={isLastAssistant && !isStreaming && !msg.isStreaming
+                  ? onSendSuggestedReply
+                  : undefined}
               />
             );
           })}

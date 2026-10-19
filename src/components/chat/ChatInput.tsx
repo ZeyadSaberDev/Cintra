@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ArrowUp, Paperclip, Square, X, FileText, Mic, BookOpen, Plus, Sparkles, GraduationCap, Lightbulb, ListChecks, Brain, Loader2, CircleCheck, CircleAlert, Globe2 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { CHAT_ATTACHMENT_ACCEPT, isSupportedChatAttachmentExtension } from '../../../lib/chat/supportedAttachments';
 import { useBayanAlert } from '../../contexts/AlertContext';
 import { hasExplicitWebSearchIntent } from '../../../lib/web/searchIntent';
 import { ModelSelector } from './ModelSelector';
@@ -56,8 +57,6 @@ interface ChatInputProps {
   onToggleThinking?: () => void;
 }
 
-const ACCEPTED_FILES = '.jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.csv,.json';
-
 export function ChatInput({
   onSendMessage,
   selectedModel,
@@ -101,6 +100,7 @@ export function ChatInput({
   const [imageError, setImageError] = useState('');
   const [searchConfirmation, setSearchConfirmation] = useState<{ message: string; files: File[] } | null>(null);
   const [files, setFiles] = useState<File[]>([]);
+  const [dragActive, setDragActive] = useState(false);
   const [pdfDocuments, setPdfDocuments] = useState<Record<string, string>>({});
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [pdfOperation, setPdfOperation] = useState<{ key: string; status: 'busy' | 'done' | 'error'; text: string }>({
@@ -413,11 +413,25 @@ export function ChatInput({
 
   const addFiles = (chosen: File[]): boolean => {
     if (!chosen.length || uploadStatus === 'uploading') return false;
+    const unsupported = chosen.find((file) => {
+      const extension = `.${file.name.toLowerCase().split('.').pop() || ''}`;
+      return !isSupportedChatAttachmentExtension(extension);
+    });
+    if (unsupported) {
+      showAlert(currentLang === 'ar'
+        ? `نوع الملف غير مدعوم: ${unsupported.name}`
+        : `Unsupported file type: ${unsupported.name}`, 'error', currentLang);
+      return false;
+    }
     if (chosen.some((file) => file.size > (file.type === 'application/pdf' ? 50 : 10) * 1024 * 1024)) {
       showAlert(t('fileSizeIndividual'), 'error', currentLang);
       return false;
     }
-    const next = [...files, ...chosen].slice(0, 5);
+    if (files.length + chosen.length > 5) {
+      showAlert(currentLang === 'ar' ? 'يمكنك إرفاق خمسة ملفات كحد أقصى.' : 'You can attach up to five files.', 'error', currentLang);
+      return false;
+    }
+    const next = [...files, ...chosen];
     const totalLimit = next.every((file) => file.type === 'application/pdf') ? 50 : 20;
     if (next.reduce((size, file) => size + file.size, 0) > totalLimit * 1024 * 1024) {
       showAlert(t('fileSizeCombined'), 'error', currentLang);
@@ -479,7 +493,7 @@ export function ChatInput({
   };
 
   return (
-    <div className={`bayan-input-shell mx-auto w-full px-4 pb-4 ${expanded ? 'max-w-6xl' : 'max-w-3xl'}`}>
+    <>
       {searchConfirmation && createPortal(
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" onMouseDown={(event) => {
           if (event.target === event.currentTarget) setSearchConfirmation(null);
@@ -670,7 +684,28 @@ export function ChatInput({
           <span>{currentLang === 'ar' ? 'البحث على الويب مفعّل' : 'Web search enabled'}</span>
         </div>
       )}
-      <form onSubmit={handleSubmit} className={`bayan-composer flex flex-col gap-1 rounded-3xl px-2 py-2.5 transition-colors ${files.some((file) => file.type.startsWith('image/')) ? 'has-image' : ''} ${homeMode ? 'bayan-home-composer border-0 bg-transparent shadow-none' : 'bayan-chat-composer'}`}>
+      <form
+        onSubmit={handleSubmit}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes('Files')) return;
+          event.preventDefault();
+          if (!disabled && !isGenerating) setDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+          if (!disabled && !isGenerating) addFiles(Array.from(event.dataTransfer.files));
+        }}
+        className={`bayan-composer relative z-20 flex shrink-0 flex-col gap-1 rounded-3xl px-2 py-2.5 transition-colors ${dragActive ? 'ring-2 ring-[var(--bayan-accent)] ring-offset-2' : ''} ${files.some((file) => file.type.startsWith('image/')) ? 'has-image' : ''} ${homeMode ? 'bayan-home-composer mx-auto w-full max-w-[928px] border-0 bg-transparent shadow-none' : `bayan-chat-composer mx-auto mt-3 mb-4 w-[calc(100%-3rem)] pb-0 ${expanded ? 'max-w-[calc(72rem-2rem)]' : 'max-w-[calc(48rem-2rem)]'}`}`}
+      >
+        {dragActive && (
+          <span className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-2xl bg-[var(--bayan-surface)]/90 text-sm font-medium text-[var(--bayan-accent)] backdrop-blur-sm">
+            {currentLang === 'ar' ? 'أفلت الملفات لإرفاقها' : 'Drop files to attach'}
+          </span>
+        )}
         {files.some((file) => file.type.startsWith('image/')) && (
           <div className="flex flex-wrap gap-2 px-1 pt-1" aria-label={currentLang === 'ar' ? 'الصور المرفقة' : 'Attached images'}>
             {files.map((file, index) => file.type.startsWith('image/') && (
@@ -710,7 +745,7 @@ export function ChatInput({
           rows={1}
           className="bayan-composer-text min-h-8 w-full min-w-0 resize-none overflow-y-hidden border-0 bg-transparent px-1 py-2 text-sm leading-6 text-neutral-900 outline-none placeholder:text-neutral-400 focus-visible:ring-0"
         />
-        <input ref={fileRef} type="file" multiple accept={ACCEPTED_FILES} disabled={disabled || uploadStatus === 'uploading'} className="hidden" onChange={(e) => addFiles(Array.from(e.target.files || []))} />
+        <input ref={fileRef} type="file" multiple accept={CHAT_ATTACHMENT_ACCEPT} disabled={disabled || uploadStatus === 'uploading'} className="hidden" onChange={(e) => addFiles(Array.from(e.target.files || []))} />
         <div className="bayan-composer-toolbar flex w-full items-center justify-between gap-2 px-0.5">
           <div className="flex min-w-0 items-center gap-1.5">
             <ModelSelector selectedModel={selectedModel} onSelectModel={onSelectModel} placement="above" />
@@ -881,7 +916,7 @@ export function ChatInput({
         document.body,
       )}
 
-      <p className="mt-2 select-none text-center text-[11px] text-neutral-400">{t('disclaimer')}</p>
-    </div>
+      <p className={`bayan-composer-disclaimer mx-auto w-[calc(100%-3rem)] max-w-[calc(72rem-2rem)] select-none text-center text-[11px] text-neutral-400 ${homeMode ? 'bayan-home-disclaimer mt-[15px] max-w-[928px]' : 'mt-2'}`}>{t('disclaimer')}</p>
+    </>
   );
 }

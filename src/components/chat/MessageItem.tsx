@@ -34,12 +34,20 @@ import {
   Smile,
   Loader2,
   Calculator,
+  AlertTriangle,
+  BookMarked,
+  Info,
+  Lightbulb,
 } from 'lucide-react';
 import { exportResponseElement, responseFilenameBase, type ResponseExportFormat } from '../../../lib/responseExport';
-import { extractGeneratedArtifacts, stripGeneratedCodeBlocks } from '../../../lib/artifacts/generatedArtifacts';
-import { normalizeMathDelimiters, parseInteractiveOptions } from '../../../lib/messageContent';
+import { extractGeneratedArtifacts } from '../../../lib/artifacts/generatedArtifacts';
+import { escapeCurrencyDelimiters, parseInlineChartSpec, selectResponseLayout } from '../../../lib/ai/responseLayout';
+import { normalizeMathDelimiters, parseInteractiveOptions, sanitizeMarkdownUrl } from '../../../lib/messageContent';
 
 export type FeedbackRating = 'like' | 'dislike' | 'heart' | 'laugh' | 'thumbs_up' | 'celebrate' | 'thinking' | 'clap';
+const markdownRemarkPlugins = [remarkGfm, remarkMath];
+const markdownRehypePlugins = [rehypeKatex, rehypeHighlight];
+
 const messageReactions: Array<{ emoji: string; asset: string; rating: FeedbackRating; label: string; labelAr: string }> = [
   { emoji: '❤️', asset: '2764', rating: 'heart', label: 'Love', labelAr: 'أعجبني' },
   { emoji: '😂', asset: '1f602', rating: 'laugh', label: 'Funny', labelAr: 'مضحك' },
@@ -66,17 +74,163 @@ export interface ChatMessageDisplay {
   model?: string | null;
   createdAt?: string;
   isStreaming?: boolean;
+  cancelled?: boolean;
   attachments?: MessageAttachment[];
   studyMode?: boolean;
   autoExportPdf?: boolean;
-  imageProgress?: number;
-  imageProgressComplete?: boolean;
+  imageGenerationComplete?: boolean;
   editedAt?: string;
   isPriorHistory?: boolean;
   searchActivity?: {
     status: 'searching' | 'results' | 'empty' | 'failed';
     sources: Array<{ title: string; url: string }>;
   };
+}
+
+function getMarkdownText(node: React.ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(getMarkdownText).join('');
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) return getMarkdownText(node.props.children);
+  return '';
+}
+
+function MarkdownCodeBlock({ children }: React.ComponentProps<'pre'>) {
+  const { currentLang } = useLanguage();
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const codeElement = React.Children.toArray(children).find((child) => React.isValidElement(child));
+  const codeProps = React.isValidElement<{ className?: string; children?: React.ReactNode }>(codeElement)
+    ? codeElement.props
+    : undefined;
+  const codeText = getMarkdownText(codeProps?.children ?? children).replace(/\n$/u, '');
+  const language = codeProps?.className?.match(/language-([\w+#.-]+)/u)?.[1] || '';
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(codeText);
+      setCopied(true);
+      setCopyFailed(false);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('Could not copy code block:', error);
+      setCopyFailed(true);
+      window.setTimeout(() => setCopyFailed(false), 2000);
+    }
+  };
+
+  return (
+    <section className="bayan-code-block my-3 min-w-0 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950" aria-label={currentLang === 'ar' ? 'كتلة كود' : 'Code block'}>
+      <header className="flex min-h-9 items-center justify-between gap-3 border-b border-neutral-200 px-3 py-1.5 text-xs text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+        <span className="min-w-0 truncate font-mono uppercase">{language || (currentLang === 'ar' ? 'كود' : 'Code')}</span>
+        <button
+          type="button"
+          onClick={() => void copyCode()}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-black/5 hover:text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--bayan-accent)] dark:hover:bg-white/10 dark:hover:text-white"
+          aria-label={currentLang === 'ar' ? 'نسخ الكود' : 'Copy code'}
+        >
+          {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+          <span>{copyFailed
+            ? (currentLang === 'ar' ? 'تعذر النسخ' : 'Copy failed')
+            : copied
+              ? (currentLang === 'ar' ? 'تم النسخ' : 'Copied')
+              : (currentLang === 'ar' ? 'نسخ' : 'Copy')}</span>
+        </button>
+      </header>
+      <pre dir="ltr" className="max-w-full overflow-x-auto p-3 text-[13px] leading-6 [&_code]:whitespace-pre [&_code]:font-mono [&_code]:text-neutral-800 dark:[&_code]:text-neutral-200">{children}</pre>
+      <span className="sr-only" role="status" aria-live="polite">
+        {copyFailed ? (currentLang === 'ar' ? 'تعذر نسخ الكود' : 'Could not copy code')
+          : copied ? (currentLang === 'ar' ? 'تم نسخ الكود' : 'Code copied') : ''}
+      </span>
+    </section>
+  );
+}
+
+function InlineDataChart({ spec }: { spec: NonNullable<ReturnType<typeof parseInlineChartSpec>> }) {
+  const { currentLang } = useLanguage();
+  const titleId = React.useId();
+  const descriptionId = React.useId();
+  const width = 720;
+  const height = 300;
+  const left = 48;
+  const right = 704;
+  const top = 24;
+  const bottom = 224;
+  const allValues = spec.series.flatMap((item) => item.values);
+  const minimum = Math.min(0, ...allValues);
+  const maximum = Math.max(0, ...allValues);
+  const range = maximum - minimum || 1;
+  const y = (value: number) => bottom - ((value - minimum) / range) * (bottom - top);
+  const colors = ['#4f46e5', '#0891b2', '#16a34a', '#d97706'];
+  const groupWidth = (right - left) / spec.labels.length;
+  const barWidth = Math.min(24, groupWidth * 0.7 / spec.series.length);
+  const baseline = y(0);
+
+  return (
+    <figure className="cintra-chart my-4 min-w-0 rounded-2xl border border-neutral-200 bg-white/70 p-3 dark:border-neutral-800 dark:bg-neutral-950/50 sm:p-4">
+      <figcaption className="mb-2">
+        <h4 id={titleId} className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{spec.title}</h4>
+        <p id={descriptionId} className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">{spec.description}</p>
+      </figcaption>
+      <div className="max-w-full overflow-x-auto">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-labelledby={`${titleId} ${descriptionId}`}
+          style={{ direction: 'ltr' }}
+          className="cintra-chart-svg block h-auto min-w-[520px] w-full"
+        >
+          <line x1={left} x2={right} y1={baseline} y2={baseline} stroke="currentColor" opacity=".22" />
+          {spec.type === 'bar'
+            ? spec.labels.map((label, labelIndex) => spec.series.map((item, seriesIndex) => {
+                const value = item.values[labelIndex];
+                const valueY = y(value);
+                const x = left + labelIndex * groupWidth + groupWidth / 2
+                  + (seriesIndex - (spec.series.length - 1) / 2) * barWidth - barWidth / 2;
+                return (
+                  <rect
+                    key={`${labelIndex}:${seriesIndex}`}
+                    x={x}
+                    y={Math.min(valueY, baseline)}
+                    width={Math.max(2, barWidth - 2)}
+                    height={Math.max(1, Math.abs(baseline - valueY))}
+                    rx="4"
+                    fill={colors[seriesIndex]}
+                  >
+                    <title>{`${label} · ${item.name}: ${value}`}</title>
+                  </rect>
+                );
+              }))
+            : spec.series.map((item, seriesIndex) => {
+                const points = item.values.map((value, index) => (
+                  `${left + index * (right - left) / Math.max(1, spec.labels.length - 1)},${y(value)}`
+                )).join(' ');
+                return (
+                  <g key={`${item.name}:${seriesIndex}`}>
+                    <polyline points={points} fill="none" stroke={colors[seriesIndex]} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+                    {item.values.map((value, index) => {
+                      const cx = left + index * (right - left) / Math.max(1, spec.labels.length - 1);
+                      return <circle key={index} cx={cx} cy={y(value)} r="4" fill={colors[seriesIndex]}><title>{`${spec.labels[index]} · ${item.name}: ${value}`}</title></circle>;
+                    })}
+                  </g>
+                );
+              })}
+          {spec.labels.map((label, index) => (
+            <text key={`${label}:${index}`} x={left + (index + 0.5) * groupWidth} y="250" textAnchor="middle" className="cintra-chart-label">{label}</text>
+          ))}
+          <text x="8" y={top + 4} className="cintra-chart-label">{maximum}</text>
+          <text x="8" y={bottom} className="cintra-chart-label">{minimum}</text>
+        </svg>
+      </div>
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1" aria-label={currentLang === 'ar' ? 'وسيلة إيضاح المخطط' : 'Chart legend'}>
+        {spec.series.map((item, index) => (
+          <li key={`${item.name}:${index}`} className="flex items-center gap-1.5 text-[11px] text-neutral-600 dark:text-neutral-300">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors[index] }} aria-hidden="true" />
+            {item.name}
+          </li>
+        ))}
+      </ul>
+    </figure>
+  );
 }
 
 interface MessageItemProps {
@@ -150,39 +304,66 @@ function MessageItemComponent({
   const [audioDownloadBusy, setAudioDownloadBusy] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
   const [selectedOptionByQuestion, setSelectedOptionByQuestion] = useState<Record<string, number>>({});
-  const generatedArtifacts = React.useMemo(() => extractGeneratedArtifacts(message.content), [message.content]);
+  const submittedOptionBlocksRef = React.useRef(new Set<string>());
+  const [submittedOptionBlocks, setSubmittedOptionBlocks] = useState<Set<string>>(new Set());
+  const generatedArtifacts = React.useMemo(
+    () => message.isStreaming
+      ? []
+      : extractGeneratedArtifacts(message.content).filter((artifact) => artifact.language !== 'cintra-chart'),
+    [message.content, message.isStreaming],
+  );
   const generatedCodeArtifacts = React.useMemo(
     () => generatedArtifacts.filter((artifact) => !['markdown', 'text'].includes(artifact.kind)),
     [generatedArtifacts],
   );
-  const messageTextWithoutCode = React.useMemo(() => stripGeneratedCodeBlocks(message.content), [message.content]);
+  const responseLayout = React.useMemo(
+    () => message.role === 'assistant' ? selectResponseLayout(message.content) : 'standard',
+    [message.content, message.role],
+  );
   const contentBlocks = React.useMemo(
     () => {
-      const normalizedText = normalizeMathDelimiters(messageTextWithoutCode);
-      return message.isStreaming
+      const normalizedText = normalizeMathDelimiters(message.content);
+      const parsedBlocks = message.isStreaming || message.isPriorHistory || readOnly || message.role !== 'assistant' || !onSendSuggestedReply
         ? [{ kind: 'markdown' as const, content: normalizedText }]
         : parseInteractiveOptions(normalizedText);
+      return parsedBlocks.map((block) => block.kind === 'markdown'
+        ? { ...block, content: escapeCurrencyDelimiters(block.content) }
+        : block);
     },
-    [messageTextWithoutCode, message.isStreaming],
+    [message.content, message.isStreaming, message.isPriorHistory, message.role, readOnly, onSendSuggestedReply],
   );
-  const markdownComponents = {
+  const markdownComponents = React.useMemo(() => ({
     code: ({ className, children, ...props }: React.ComponentProps<'code'>) => {
       const isBlock = Boolean(className?.includes('language-'));
       return isBlock
         ? <code dir="ltr" className={className} {...props}>{children}</code>
-        : <code dir="ltr" className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[0.9em]" {...props}>{children}</code>;
+        : <code dir="ltr" className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[0.9em] text-neutral-900 dark:bg-white/10 dark:text-neutral-100" {...props}>{children}</code>;
     },
-    pre: () => null,
-    img: ({ src, alt, ...props }: React.ComponentProps<'img'>) => src
-      ? <img src={src} alt={alt || ''} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="bayan-inline-explanatory-image" {...props} />
-      : null,
+    pre: ({ children }: React.ComponentProps<'pre'>) => {
+      const codeElement = React.Children.toArray(children).find((child) => React.isValidElement(child));
+      const codeProps = React.isValidElement<{ className?: string; children?: React.ReactNode }>(codeElement)
+        ? codeElement.props
+        : undefined;
+      const language = codeProps?.className?.match(/language-([\w+#.-]+)/u)?.[1];
+      if (language === 'cintra-chart') {
+        const spec = parseInlineChartSpec(getMarkdownText(codeProps?.children ?? children));
+        if (spec) return <InlineDataChart spec={spec} />;
+      }
+      return <MarkdownCodeBlock>{children}</MarkdownCodeBlock>;
+    },
+    img: ({ src, alt, ...props }: React.ComponentProps<'img'>) => {
+      const safeSrc = sanitizeMarkdownUrl(src, 'image');
+      return safeSrc
+        ? <img src={safeSrc} alt={alt || ''} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="bayan-inline-explanatory-image" {...props} />
+        : null;
+    },
     div: ({ className, children, ...props }: React.ComponentProps<'div'>) => (
       className?.split(/\s+/u).includes('katex-display')
         ? <div className="bayan-formula-card"><div className={className} {...props}>{children}</div></div>
         : <div className={className} {...props}>{children}</div>
     ),
-    p: ({ children }: { children?: React.ReactNode }) => <p className="my-2">{children}</p>,
-    li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
+    p: ({ children }: { children?: React.ReactNode }) => <p dir="auto" className="my-2">{children}</p>,
+    li: ({ children }: { children?: React.ReactNode }) => <li dir="auto">{children}</li>,
     strong: ({ children }: { children?: React.ReactNode }) => (
       <strong
         style={{ '--bayan-answer-highlight-color': assistantAnswerHighlightColor } as React.CSSProperties}
@@ -195,43 +376,74 @@ function MessageItemComponent({
     ),
     em: ({ children }: { children?: React.ReactNode }) => <em>{children}</em>,
     del: ({ children }: { children?: React.ReactNode }) => <del>{children}</del>,
-    h1: ({ children }: { children?: React.ReactNode }) => <h1 className="my-4 text-2xl font-semibold">{children}</h1>,
+    h1: ({ children }: { children?: React.ReactNode }) => <h1 dir="auto" className="my-4 text-2xl font-semibold">{children}</h1>,
     h2: ({ children }: { children?: React.ReactNode }) => {
       const heading = React.Children.toArray(children).filter((child) => typeof child === 'string').join(' ');
       const isStage = /(stage|step|lesson|مرحلة|المرحلة|خطوة|الخطوة|درس|الدرس)/iu.test(heading);
       const Icon = /(math|calcul|operation|function|معادلة|عملية|دوال|رياضيات)/iu.test(heading) ? Calculator : BookOpen;
       return isStage
-        ? <h2 className="my-4 flex items-center gap-3 rounded-2xl border border-neutral-200/70 bg-neutral-100/60 px-4 py-3 text-xl font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.04]"><Icon size={19} className="shrink-0 text-[var(--bayan-accent)]" />{children}</h2>
-        : <h2 className="my-3 text-xl font-semibold">{children}</h2>;
+        ? <h2 dir="auto" className="my-4 flex items-center gap-3 rounded-2xl border border-neutral-200/70 bg-neutral-100/60 px-4 py-3 text-xl font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.04]"><Icon size={19} className="shrink-0 text-[var(--bayan-accent)]" />{children}</h2>
+        : <h2 dir="auto" className="my-3 text-xl font-semibold">{children}</h2>;
     },
     h3: ({ children }: { children?: React.ReactNode }) => {
       const heading = React.Children.toArray(children).filter((child) => typeof child === 'string').join(' ');
       const isStage = /(stage|step|lesson|مرحلة|المرحلة|خطوة|الخطوة|درس|الدرس)/iu.test(heading);
       const Icon = /(math|calcul|operation|function|معادلة|عملية|دوال|رياضيات)/iu.test(heading) ? Calculator : BookOpen;
       return isStage
-        ? <h3 className="my-3 flex items-center gap-3 rounded-xl border border-neutral-200/70 bg-neutral-100/60 px-3.5 py-2.5 text-lg font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.04]"><Icon size={17} className="shrink-0 text-[var(--bayan-accent)]" />{children}</h3>
-        : <h3 className="my-3 text-lg font-semibold">{children}</h3>;
+        ? <h3 dir="auto" className="my-3 flex items-center gap-3 rounded-xl border border-neutral-200/70 bg-neutral-100/60 px-3.5 py-2.5 text-lg font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.04]"><Icon size={17} className="shrink-0 text-[var(--bayan-accent)]" />{children}</h3>
+        : <h3 dir="auto" className="my-3 text-lg font-semibold">{children}</h3>;
     },
-    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
-      <a href={href} target={href?.startsWith('/') && !href.startsWith('//') ? undefined : '_blank'} rel="noreferrer" className="text-blue-500 underline decoration-blue-300 underline-offset-2 hover:text-blue-700 hover:decoration-blue-500">
-        {children}
-      </a>
-    ),
-    blockquote: ({ children }: { children?: React.ReactNode }) => <blockquote className="my-3 border-l-2 border-neutral-300 pl-4 text-neutral-600 rtl:border-l-0 rtl:border-r-2 rtl:pl-0 rtl:pr-4">{children}</blockquote>,
+    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+      const safeHref = sanitizeMarkdownUrl(href);
+      if (!safeHref) return <>{children}</>;
+      const external = /^https?:/iu.test(safeHref);
+      return (
+        <a href={safeHref} target={external ? '_blank' : undefined} rel={external ? 'noopener noreferrer' : undefined} className="text-blue-500 underline decoration-blue-300 underline-offset-2 hover:text-blue-700 hover:decoration-blue-500">
+          {children}
+        </a>
+      );
+    },
+    blockquote: ({ children }: { children?: React.ReactNode }) => {
+      const text = getMarkdownText(children).trimStart();
+      const callout = /^(?:⚠️?\s*)?(warning|caution|important|definition|example|key takeaway|final answer|تحذير|تنبيه|تعريف|مثال|الخلاصة|الإجابة النهائية)\s*:?/iu.exec(text)?.[1];
+      if (!callout) return <blockquote className="my-3 border-s-2 border-neutral-300 ps-4 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">{children}</blockquote>;
+      const normalized = callout.toLocaleLowerCase();
+      const isWarning = /warning|caution|important|تحذير|تنبيه/iu.test(normalized);
+      const Icon = isWarning ? AlertTriangle
+        : /definition|تعريف/iu.test(normalized) ? BookMarked
+          : /example|مثال/iu.test(normalized) ? Lightbulb
+            : Info;
+      const label = callout;
+      return (
+        <aside
+          role={isWarning ? 'note' : undefined}
+          aria-label={label}
+          className={`my-3 rounded-xl border p-3 text-neutral-700 dark:text-neutral-200 ${isWarning ? 'border-amber-300/70 bg-amber-50/70 dark:border-amber-400/20 dark:bg-amber-400/[0.06]' : 'border-neutral-200 bg-neutral-50/80 dark:border-neutral-800 dark:bg-white/[0.035]'}`}
+        >
+          <div className="flex items-start gap-2.5">
+            <Icon size={16} className="mt-1 shrink-0 text-[var(--bayan-accent)]" aria-hidden="true" />
+            <div className="min-w-0 flex-1">{children}</div>
+          </div>
+        </aside>
+      );
+    },
     td: ({ children }: { children?: React.ReactNode }) => <td className="border border-neutral-200 px-3 py-2">{children}</td>,
     th: ({ children }: { children?: React.ReactNode }) => <th className="border border-neutral-200 bg-neutral-50 px-3 py-2 font-semibold">{children}</th>,
     ul: ({ children }: { children?: React.ReactNode }) => <ul className="my-2 list-disc space-y-1 pl-6 rtl:pl-0 rtl:pr-6">{children}</ul>,
     ol: ({ children }: { children?: React.ReactNode }) => <ol className="my-2 list-decimal space-y-1 pl-6 rtl:pl-0 rtl:pr-6">{children}</ol>,
     table: ({ children }: { children?: React.ReactNode }) => <div className="my-3 max-w-full overflow-x-auto"><table className="w-full border-collapse text-start">{children}</table></div>,
-  };
+  }), [currentLang, assistantAnswerHighlightColor, highlightAssistantAnswers]);
 
   const sendSelectedOptions = (blockIndex: number, action: string, questions: Array<{ prompt: string; options: string[] }>) => {
-    if (!onSendSuggestedReply) return;
+    const submissionKey = `${message.id}:${blockIndex}`;
+    if (!onSendSuggestedReply || submittedOptionBlocksRef.current.has(submissionKey)) return;
     const answers = questions.flatMap((question, questionIndex) => {
       const selected = selectedOptionByQuestion[`${message.id}:${blockIndex}:${questionIndex}`];
       return selected === undefined ? [] : [`${question.prompt}\n${questionIndex + 1}. ${question.options[selected]}`];
     });
-    if (!answers.length) return;
+    if (answers.length !== questions.length) return;
+    submittedOptionBlocksRef.current.add(submissionKey);
+    setSubmittedOptionBlocks((current) => new Set(current).add(submissionKey));
     onSendSuggestedReply(`${action}\n\n${answers.join('\n')}`);
   };
 
@@ -744,56 +956,35 @@ function MessageItemComponent({
             )}
           </section>
         )}
-        <div data-export-content dir="auto" className={`bayan-assistant-message markdown-content min-w-0 max-w-full leading-relaxed ${message.isStreaming ? 'is-streaming' : ''}`} onMouseUp={studyMode ? handleTextSelection : undefined}>
-          {message.imageProgressComplete && (
-            <div className="mb-3 max-w-md rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-800" role="status">
-              <div className="flex items-center justify-between gap-3">
-                <span>{currentLang === 'ar' ? 'اكتمل إنشاء الصورة' : 'Image generation complete'}</span>
-                <span className="font-semibold">100%</span>
-              </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-100"><div className="h-full w-full rounded-full bg-emerald-500" /></div>
+        <div data-export-content data-response-layout={responseLayout} dir="auto" className={`bayan-assistant-message markdown-content min-w-0 max-w-full leading-relaxed ${message.isStreaming ? 'is-streaming' : ''}`} onMouseUp={studyMode ? handleTextSelection : undefined}>
+          {message.imageGenerationComplete && (
+            <div className="mb-3 flex max-w-md items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400" role="status">
+              <Check size={14} aria-hidden="true" />
+              <span>{currentLang === 'ar' ? 'اكتمل إنشاء الصورة' : 'Image generation complete'}</span>
             </div>
           )}
           {message.isStreaming && !message.content ? (
             message.id.startsWith('image_pending_') ? (
               <div
-                className="cintra-image-skeleton"
+                className="cintra-image-waiting my-2 inline-flex items-center gap-2.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-white/[0.035] dark:text-neutral-300"
                 role="status"
                 aria-label={currentLang === 'ar' ? 'جارٍ إنشاء الصورة' : 'Generating image'}
               >
-                <div className="cintra-image-progress-preview">
-                  <div className="cintra-image-progress-heading">
-                    <span className="cintra-image-progress-indicator" aria-hidden="true" />
-                    <span>{currentLang === 'ar' ? 'جارٍ تجهيز المسودة الأولى' : 'Making the first draft'}</span>
-                  </div>
-                  <div className="cintra-image-progress-dots" aria-hidden="true">
-                    <div
-                      className="cintra-image-progress-dots-fill"
-                      style={{ width: `${Math.min(90, message.imageProgress || 5)}%` }}
-                    />
-                  </div>
-                  <div
-                    className="cintra-image-progress-badge"
-                    role="progressbar"
-                    aria-label={currentLang === 'ar' ? 'تقدم تقديري لإنشاء الصورة' : 'Estimated image generation progress'}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.min(90, message.imageProgress || 5)}
-                  >
-                    {Math.min(90, message.imageProgress || 5)}%
-                  </div>
-                </div>
-                <p className="cintra-image-progress-note">
-                  {currentLang === 'ar' ? 'يعمل Cintra على إنشاء صورتك…' : 'Cintra is bringing your image to life…'}
-                </p>
+                <span className="bayan-response-dots text-[var(--bayan-accent)]" aria-hidden="true"><i /><i /><i /></span>
+                <span>{currentLang === 'ar' ? 'جارٍ إنشاء الصورة…' : 'Generating image…'}</span>
               </div>
             ) : (
-              <div className="bayan-response-status flex items-center gap-2 py-2 text-xs" role="status" aria-label={isThinking ? t('thinking') : t('generating')}>
-                <img src="/cintra-mark.png" alt="" aria-hidden="true" className="h-6 w-6 animate-pulse rounded-md object-cover" />
-                <span className="bayan-generating-label font-medium">
-                  {isThinking ? t('thinking') : t('generating')}
+              <div className="bayan-response-status cintra-response-waiting flex items-center gap-2 py-2 text-xs" role="status" aria-label={currentLang === 'ar' ? 'Cintra يُحضّر الإجابة' : 'Cintra is preparing a response'}>
+                <span className="cintra-wait-mark" aria-hidden="true">
+                  <img src="/cintra-mark.png" alt="" className="h-7 w-7 rounded-lg object-cover" />
                 </span>
-                <span className="bayan-response-dots" aria-hidden="true"><i /><i /><i /></span>
+                <span className="min-w-0">
+                  <span className="block font-semibold text-neutral-800 dark:text-neutral-100">Cintra</span>
+                  <span className="cintra-wait-label block text-[11px] text-neutral-500 dark:text-neutral-400">
+                    {currentLang === 'ar' ? 'يُحضّر إجابتك…' : 'Preparing your response…'}
+                  </span>
+                </span>
+                <span className="bayan-response-dots ms-1" aria-hidden="true"><i /><i /><i /></span>
               </div>
             )
           ) : (
@@ -802,8 +993,8 @@ function MessageItemComponent({
             ? block.content.trim() && (
                 <ReactMarkdown
                   key={`markdown-${blockIndex}`}
-                  remarkPlugins={[remarkGfm, remarkMath]}
-                  rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                  remarkPlugins={markdownRemarkPlugins}
+                  rehypePlugins={markdownRehypePlugins}
                   components={markdownComponents}
                 >
                   {block.content}
@@ -828,7 +1019,7 @@ function MessageItemComponent({
                                 name={groupKey}
                                 value={option}
                                 checked={selected}
-                                disabled={!onSendSuggestedReply}
+                                disabled={!onSendSuggestedReply || submittedOptionBlocks.has(`${message.id}:${blockIndex}`)}
                                 onChange={() => setSelectedOptionByQuestion((current) => ({ ...current, [groupKey]: optionIndex }))}
                                 className="mt-0.5 h-4 w-4 accent-emerald-500"
                               />
@@ -842,7 +1033,7 @@ function MessageItemComponent({
                   {onSendSuggestedReply && (
                     <button
                       type="button"
-                      disabled={!block.questions.some((_, questionIndex) => selectedOptionByQuestion[`${message.id}:${blockIndex}:${questionIndex}`] !== undefined)}
+                      disabled={submittedOptionBlocks.has(`${message.id}:${blockIndex}`) || !block.questions.every((_, questionIndex) => selectedOptionByQuestion[`${message.id}:${blockIndex}:${questionIndex}`] !== undefined)}
                       onClick={() => sendSelectedOptions(blockIndex, block.action || (currentLang === 'ar' ? 'إرسال الإجابة' : 'Submit answer'), block.questions)}
                       className="w-full rounded-full bg-neutral-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:scale-[1.005] hover:bg-neutral-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
                     >
@@ -852,6 +1043,11 @@ function MessageItemComponent({
                 </section>
               ))}
           {message.isStreaming && <span className="bayan-streaming-caret" aria-hidden="true" />}
+          {message.cancelled && (
+            <p className="mt-2 text-[11px] text-neutral-500" role="status">
+              {currentLang === 'ar' ? 'تم إيقاف إنشاء الرد.' : 'Response generation stopped.'}
+            </p>
+          )}
           {!message.isStreaming && generatedCodeArtifacts.length > 0 && (
             <div className="mt-3 grid max-w-xl gap-2">
               {generatedCodeArtifacts.map((artifact) => (

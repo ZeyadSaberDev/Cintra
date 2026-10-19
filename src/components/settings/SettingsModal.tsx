@@ -547,7 +547,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'general', thinkin
             </div>
 
             <div className="px-2 text-[11px] text-neutral-400">
-              Bayan v1.0 • {user.plan === 'pro_plus' ? 'Pro+' : user.plan === 'pro' ? t('proPlanName') : t('freePlanName')}
+              Cintra v1.0 • {user.plan === 'pro_plus' ? 'Pro+' : user.plan === 'pro' ? t('proPlanName') : t('freePlanName')}
             </div>
           </div>
 
@@ -571,8 +571,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'general', thinkin
                   </h2>
                   <p className="text-xs text-neutral-500 mt-0.5">
                     {activeTab === 'general' && t('languageSettingDesc')}
-                    {activeTab === 'voice' && (currentLang === 'ar' ? 'إعدادات قراءة الردود بصوت مسموع.' : 'Choose how Bayan reads responses aloud.')}
-                    {activeTab === 'personalization' && 'Customize how Bayan responds to your queries.'}
+                    {activeTab === 'voice' && (currentLang === 'ar' ? 'إعدادات قراءة الردود بصوت مسموع.' : 'Choose how Cintra reads responses aloud.')}
+                    {activeTab === 'personalization' && 'Customize how Cintra responds to your queries.'}
                     {activeTab === 'plan' && t('estimatedCreditsPerMessage')}
                     {activeTab === 'data' && 'Manage your conversations and privacy settings.'}
                     {activeTab === 'account' && t('accountSettings')}
@@ -1076,7 +1076,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'general', thinkin
                       <div>
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">{currentLang === 'ar' ? 'خطتك الحالية' : 'Current plan'}</span>
                         <div className="mt-1 text-base font-semibold text-neutral-900">
-                          {(billing?.currentPlan ?? user.plan) === 'pro_plus' ? 'Bayan Pro+' : (billing?.currentPlan ?? user.plan) === 'pro' ? 'Bayan Pro' : currentLang === 'ar' ? 'مجانية' : 'Free'}
+                          {(billing?.currentPlan ?? user.plan) === 'pro_plus' ? 'Cintra Pro+' : (billing?.currentPlan ?? user.plan) === 'pro' ? 'Cintra Pro' : currentLang === 'ar' ? 'مجانية' : 'Free'}
                         </div>
                       </div>
                       <span className="text-sm font-semibold text-neutral-900">{user.creditBalance} {t('credits')}</span>

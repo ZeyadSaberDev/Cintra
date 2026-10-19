@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import { AuthCard } from './components/auth/AuthCard';
 import { Sidebar, SidebarConversation } from './components/layout/Sidebar';
+import { WorkspacePage, type WorkspaceSection } from './components/layout/WorkspacePage';
 import { Header } from './components/layout/Header';
 import { ConversationView } from './components/chat/ConversationView';
 import { ChatInput } from './components/chat/ChatInput';
@@ -24,6 +25,7 @@ import { ConfirmDialog } from './components/ui/ConfirmDialog';
 import { useBayanAlert } from './contexts/AlertContext';
 import { applyThemePreference, readThemePreference, saveThemePreference } from './lib/theme';
 import { extractGeneratedArtifacts } from '../lib/artifacts/generatedArtifacts';
+import { getEntranceVariants, getMotionTransition, getStaggerChildVariants, getStaggerVariants, motionTiming } from './lib/motion';
 
 const AboutPage = React.lazy(() =>
   import('./components/layout/AboutPage').then((module) => ({ default: module.AboutPage })),
@@ -92,6 +94,9 @@ function ActionToast({
 
 function Workspace() {
   const reduceMotion = useReducedMotion();
+  const homeEntranceVariants = getEntranceVariants(Boolean(reduceMotion));
+  const homeStaggerVariants = getStaggerVariants(Boolean(reduceMotion));
+  const homeChildVariants = getStaggerChildVariants(Boolean(reduceMotion));
   const showAlert = useBayanAlert();
   const {
     user, emailVerified, loading, logout, refreshUser, updateProfile,
@@ -125,6 +130,10 @@ function Workspace() {
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isAgentMode, setIsAgentMode] = useState(() => window.location.pathname === '/agent');
+  const [workspaceSection, setWorkspaceSection] = useState<WorkspaceSection | null>(() => {
+    const match = window.location.pathname.match(/^\/workspace\/(stability|documents|models|design)\/?$/);
+    return match ? match[1] as WorkspaceSection : null;
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<'general' | 'voice' | 'personalization' | 'plan' | 'data' | 'account'>('general');
   const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false);
@@ -147,7 +156,6 @@ function Workspace() {
     const closeSidebarOnMobile = () => {
       if (mobileViewport.matches) setSidebarOpen(false);
     };
-    closeSidebarOnMobile();
     mobileViewport.addEventListener('change', closeSidebarOnMobile);
     return () => mobileViewport.removeEventListener('change', closeSidebarOnMobile);
   }, []);
@@ -379,6 +387,8 @@ function Workspace() {
   useEffect(() => {
     const handlePopState = () => {
       setIsAgentMode(window.location.pathname === '/agent');
+      const workspaceMatch = window.location.pathname.match(/^\/workspace\/(stability|documents|models|design)\/?$/);
+      setWorkspaceSection(workspaceMatch ? workspaceMatch[1] as WorkspaceSection : null);
       const match = window.location.pathname.match(/^\/c\/([^/]+)\/?$/);
       if (match) {
         void loadConversation(decodeURIComponent(match[1]));
@@ -426,6 +436,7 @@ function Workspace() {
     setIsThinking(false);
     setActiveChatId(null);
     setMessages([]);
+    setWorkspaceSection(null);
     setArtifactPanelMessageId(null);
     setArtifactPanelOpen(false);
     setArtifactMobileView('chat');
@@ -440,6 +451,21 @@ function Workspace() {
       localStorage.setItem('sidebarOpen', String(next));
       return next;
     });
+  };
+
+  const openWorkspaceSection = (section: WorkspaceSection) => {
+    setWorkspaceSection(section);
+    setIsAgentMode(false);
+    window.history.pushState({}, '', `/workspace/${section}`);
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      setSidebarOpen(false);
+      localStorage.setItem('sidebarOpen', 'false');
+    }
+  };
+
+  const returnToChatFromWorkspace = () => {
+    setWorkspaceSection(null);
+    window.history.pushState({}, '', activeChatId ? `/c/${encodeURIComponent(activeChatId)}` : '/');
   };
 
   const handleThinkingModeChange = (enabled: boolean) => {
@@ -466,7 +492,6 @@ function Workspace() {
     const userMessageId = `image_prompt_${Date.now()}`;
     const assistantMessageId = `image_pending_${Date.now() + 1}`;
     const isArabicPrompt = /[\u0600-\u06FF]/.test(prompt);
-    const imageStartedAt = Date.now();
     setIsGeneratingImage(true);
     setMessages((previous) => [
       ...previous,
@@ -483,16 +508,9 @@ function Workspace() {
         content: '',
         model: selectedModel,
         isStreaming: true,
-        imageProgress: 5,
         createdAt: new Date().toISOString(),
       },
     ]);
-    const progressTimer = window.setInterval(() => {
-      const estimatedProgress = Math.min(90, Math.round(8 + 82 * (1 - Math.exp(-(Date.now() - imageStartedAt) / 30000))));
-      setMessages((previous) => previous.map((message) => message.id === assistantMessageId
-        ? { ...message, imageProgress: estimatedProgress }
-        : message));
-    }, 600);
 
     try {
       const response = await fetch('/api/images/generate', {
@@ -517,7 +535,7 @@ function Workspace() {
       setMessages((previous) => [
         ...previous.filter((message) => message.id !== userMessageId && message.id !== assistantMessageId),
         data.userMessage,
-        { ...data.message, isStreaming: false, imageProgress: 100, imageProgressComplete: true },
+        { ...data.message, isStreaming: false, imageGenerationComplete: true },
       ]);
       void fetchConversations();
     } catch (error) {
@@ -526,7 +544,6 @@ function Workspace() {
       }
       throw error;
     } finally {
-      window.clearInterval(progressTimer);
       setIsGeneratingImage(false);
     }
   };
@@ -1032,7 +1049,7 @@ function Workspace() {
     setUploadProgress(null);
     setIsReconnecting(false);
     setMessages((prev) =>
-      prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+      prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false, cancelled: true } : m))
     );
   };
 
@@ -1299,15 +1316,22 @@ function Workspace() {
   // Authenticated: render the complete ChatGPT-style workspace
   return (
     <div dir={isRtl ? 'rtl' : 'ltr'} className={`bayan-workspace flex w-screen h-screen overflow-hidden bg-white text-neutral-900 font-sans ${isRtl ? 'rtl' : 'ltr'} ${isHomeScreen ? 'bayan-home-layout' : ''}`}>
-      {sidebarOpen && (
-        <button
-          type="button"
-          aria-label={t('closeSidebar')}
-          onClick={handleToggleSidebar}
-          className="fixed inset-0 z-30 bg-black/20 md:hidden"
-        />
-      )}
-      <div className={`fixed inset-y-0 ltr:left-0 rtl:right-0 z-40 w-[clamp(240px,_18vw,_290px)] transition-[transform,width] duration-200 md:relative md:inset-auto md:translate-x-0 md:shrink-0 ${
+      <motion.button
+        type="button"
+        aria-label={t('closeSidebar')}
+        aria-hidden={!sidebarOpen}
+        inert={!sidebarOpen}
+        onClick={handleToggleSidebar}
+        initial={false}
+        animate={{ opacity: sidebarOpen ? 1 : 0, visibility: sidebarOpen ? 'visible' : 'hidden' }}
+        transition={getMotionTransition(Boolean(reduceMotion), motionTiming.panel)}
+        style={{ pointerEvents: sidebarOpen ? 'auto' : 'none' }}
+        className="fixed inset-0 z-30 bg-black/20 md:hidden"
+      />
+      <div
+        aria-hidden={!sidebarOpen}
+        inert={!sidebarOpen}
+        className={`fixed inset-y-0 ltr:left-0 rtl:right-0 z-40 w-[clamp(240px,_18vw,_290px)] transition-[transform,width] duration-200 md:relative md:inset-auto md:translate-x-0 md:shrink-0 ${
         sidebarOpen
           ? 'translate-x-0 md:w-[clamp(240px,_18vw,_290px)]'
           : `${isRtl ? 'translate-x-full' : '-translate-x-full'} md:w-0 md:overflow-hidden`
@@ -1321,6 +1345,7 @@ function Workspace() {
             if (window.matchMedia('(max-width: 767px)').matches) handleToggleSidebar();
           }}
           onSelectChat={(id) => {
+            setWorkspaceSection(null);
             void loadConversation(id);
             if (window.matchMedia('(max-width: 767px)').matches) handleToggleSidebar();
           }}
@@ -1342,8 +1367,11 @@ function Workspace() {
           }}
           onOpenAgent={() => {
             window.history.pushState({}, '', '/agent');
+            setWorkspaceSection(null);
             setIsAgentMode(true);
           }}
+          activeWorkspaceSection={workspaceSection}
+          onOpenWorkspaceSection={openWorkspaceSection}
         />
       </div>
 
@@ -1438,6 +1466,20 @@ function Workspace() {
         )}
 
         <main dir="ltr" className={`bayan-conversation-main flex flex-1 min-h-0 flex-col gap-2 overflow-hidden p-2 sm:gap-3 ${isHomeScreen ? 'bayan-home-main' : 'bg-white'}`}>
+          {workspaceSection ? (
+            <WorkspacePage
+              section={workspaceSection}
+              selectedModel={selectedModel}
+              onSelectModel={(modelId) => void handleSelectModel(modelId)}
+              onBackToChat={returnToChatFromWorkspace}
+              onOpenSettings={() => {
+                setSettingsInitialTab('general');
+                setIsSettingsOpen(true);
+              }}
+              onStartChat={handleNewChat}
+            />
+          ) : (
+          <>
           {artifactPanelOpen && activeArtifacts.length > 0 && !isHomeScreen && (
             <nav className="bayan-artifact-mobile-tabs shrink-0" aria-label={currentLang === 'ar' ? 'عرض مساحة العمل' : 'Workspace view'}>
               <button type="button" onClick={() => setArtifactMobileView('chat')} className={artifactMobileView === 'chat' ? 'is-active' : ''}>
@@ -1460,87 +1502,110 @@ function Workspace() {
             className={`bayan-chat-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[flex-basis] duration-300 ${artifactPanelOpen && artifactMobileView === 'preview' ? 'is-mobile-hidden' : ''}`}
           >
           {isHomeScreen ? (
-            <section className="bayan-home-screen flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 sm:px-8 sm:py-10">
-              <div className="bayan-home-content w-full max-w-[896px]">
-                <div className="bayan-home-heading-wrap relative mx-auto mb-7 w-fit max-w-full">
+            <motion.section
+              initial="hidden"
+              animate="visible"
+              variants={homeEntranceVariants}
+              className="bayan-home-screen flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 sm:px-8 sm:py-10"
+            >
+              <motion.div variants={homeStaggerVariants} className="bayan-home-content w-full max-w-[896px]">
+                <motion.div variants={homeChildVariants} className="bayan-home-heading-wrap relative mx-auto mb-7 w-fit max-w-full">
                   <Sparkles className="bayan-home-heading-sparkle absolute" size={23} aria-hidden="true" />
                   <h1 className="text-center text-[30px] font-semibold tracking-tight sm:text-[36px]">
                     {currentLang === 'ar'
                       ? <>ما الذي يدور في بالك <span>اليوم؟</span></>
                       : <>What’s on your mind <span>today?</span></>}
                   </h1>
-                </div>
-                <p className="bayan-home-subtitle mb-7 text-center text-sm leading-7 sm:text-base">
+                </motion.div>
+                <motion.p variants={homeChildVariants} className="bayan-home-subtitle mb-7 text-center text-sm leading-7 sm:text-base">
                   {currentLang === 'ar'
                     ? 'أنا Cintra، مساعدك الذكي. اكتب سؤالك أو اختر من الخيارات أدناه لبدء رحلتك.'
                     : 'I’m Cintra, your AI assistant. Ask a question or choose an option below to get started.'}
-                </p>
-                {chatInput}
-                <div className="bayan-home-shortcuts mx-auto mt-9 grid w-full max-w-[896px] gap-4 sm:grid-cols-3">
-                  <button type="button" onClick={openImageStudio} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium transition hover:-translate-y-1">
+                </motion.p>
+                <motion.div variants={homeChildVariants}>{chatInput}</motion.div>
+                <motion.div variants={homeStaggerVariants} className="bayan-home-shortcuts mx-auto mt-9 grid w-full max-w-[896px] gap-4 sm:grid-cols-3">
+                  <motion.button variants={homeChildVariants} type="button" onClick={openImageStudio} whileHover={reduceMotion ? undefined : { y: -2 }} transition={getMotionTransition(Boolean(reduceMotion), motionTiming.micro)} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium">
                     <span className="bayan-home-action-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-full"><ImageIcon size={20} /></span>
                     <span className="bayan-home-action-title mt-2 block">{currentLang === 'ar' ? 'أنشئ صورة أو ملصقاً' : 'Create an image or sticker'}</span>
                     <span className="bayan-home-action-description mt-1 block">{currentLang === 'ar' ? 'حوّل أفكارك إلى صور مدهشة' : 'Turn your ideas into stunning images'}</span>
                     <ArrowRight className="bayan-home-action-arrow absolute bottom-4 left-4" size={17} aria-hidden="true" />
-                  </button>
-                  <button type="button" onClick={openWritingWorkspace} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium transition hover:-translate-y-1">
+                  </motion.button>
+                  <motion.button variants={homeChildVariants} type="button" onClick={openWritingWorkspace} whileHover={reduceMotion ? undefined : { y: -2 }} transition={getMotionTransition(Boolean(reduceMotion), motionTiming.micro)} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium">
                     <span className="bayan-home-action-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-full"><PenLine size={20} /></span>
                     <span className="bayan-home-action-title mt-2 block">{currentLang === 'ar' ? 'اكتب أو حرّر' : 'Write or edit'}</span>
                     <span className="bayan-home-action-description mt-1 block">{currentLang === 'ar' ? 'أنشئ محتوى، عدّل النصوص وطوّر أفكارك' : 'Create content, edit text, and develop ideas'}</span>
                     <ArrowRight className="bayan-home-action-arrow absolute bottom-4 left-4" size={17} aria-hidden="true" />
-                  </button>
-                  <button type="button" onClick={openWebResearch} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium transition hover:-translate-y-1">
+                  </motion.button>
+                  <motion.button variants={homeChildVariants} type="button" onClick={openWebResearch} whileHover={reduceMotion ? undefined : { y: -2 }} transition={getMotionTransition(Boolean(reduceMotion), motionTiming.micro)} className="bayan-home-action-card group relative flex min-h-[140px] flex-col items-start rounded-[20px] px-5 py-4 text-start text-sm font-medium">
                     <span className="bayan-home-action-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-full"><Globe2 size={20} /></span>
                     <span className="bayan-home-action-title mt-2 block">{currentLang === 'ar' ? 'ابحث في الويب' : 'Search the web'}</span>
                     <span className="bayan-home-action-description mt-1 block">{currentLang === 'ar' ? 'احصل على أحدث المعلومات من الإنترنت' : 'Find the latest information on the web'}</span>
                     <ArrowRight className="bayan-home-action-arrow absolute bottom-4 left-4" size={17} aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-            </section>
+                  </motion.button>
+                </motion.div>
+              </motion.div>
+            </motion.section>
           ) : (
             <>
           <section className="bayan-conversation-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-6">
+          <AnimatePresence initial={false} mode="wait">
           {loadingChat ? (
-              <div className="w-full max-w-3xl mx-auto px-4 py-8 flex-1 space-y-5" role="status" aria-label="Loading conversation">
+              <motion.div
+                key="conversation-loading"
+                initial={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={getMotionTransition(Boolean(reduceMotion), motionTiming.component)}
+                className="w-full max-w-3xl mx-auto px-4 py-8 flex-1 space-y-5"
+                role="status"
+                aria-label="Loading conversation"
+              >
                 <div className="flex justify-start"><div className="h-12 w-2/3 rounded-2xl bg-neutral-100 animate-pulse" /></div>
                 <div className="space-y-3">
                   <div className="h-4 w-5/6 rounded bg-neutral-100 animate-pulse" />
                   <div className="h-4 w-4/6 rounded bg-neutral-100 animate-pulse" />
                   <div className="h-4 w-3/6 rounded bg-neutral-100 animate-pulse" />
                 </div>
-              </div>
+              </motion.div>
           ) : (
-            <ConversationView
-              messages={messages}
-              userName={user.isGuest ? t('guestUser') : user.name}
-              isStreaming={isStreaming}
-              isThinking={isThinking}
-              isReconnecting={isReconnecting}
-              onRegenerate={handleRegenerate}
-              onEditMessage={!isStreaming ? handleEditMessage : undefined}
-              onSelectPrompt={(prompt) => handleSendMessage(prompt)}
-              onFeedback={handleFeedback}
-              onSendSuggestedReply={(reply) => { void handleSendMessage(reply); }}
-              onRegenerateImage={handleRegenerateImage}
-              onEditImage={handleEditImagePrompt}
-              onDeleteImage={setImageToDelete}
-              onOpenArtifacts={handleOpenArtifacts}
-              studyMode={user?.studyModeEnabled ?? false}
-              highlightUserMessages={user?.highlightUserMessages ?? true}
-              highlightAssistantAnswers={user?.highlightAssistantAnswers ?? true}
-              userMessageHighlightColor={user?.userMessageHighlightColor || '#818cf8'}
-              assistantAnswerHighlightColor={user?.assistantAnswerHighlightColor || '#fbbf24'}
-              ttsVoice={user?.ttsVoice || ''}
-              ttsSpeed={user?.ttsSpeed || 1}
-              preferredLanguage={user?.preferredLanguage || (currentLang === 'ar' ? 'ar-EG' : 'en-US')}
-              expanded={chatExpanded}
-            />
+            <motion.div
+              key="conversation-content"
+              initial={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={getMotionTransition(Boolean(reduceMotion), motionTiming.component)}
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              <ConversationView
+                messages={messages}
+                userName={user.isGuest ? t('guestUser') : user.name}
+                isStreaming={isStreaming}
+                isThinking={isThinking}
+                isReconnecting={isReconnecting}
+                onRegenerate={handleRegenerate}
+                onEditMessage={!isStreaming ? handleEditMessage : undefined}
+                onSelectPrompt={(prompt) => handleSendMessage(prompt)}
+                onFeedback={handleFeedback}
+                onSendSuggestedReply={(reply) => { void handleSendMessage(reply); }}
+                onRegenerateImage={handleRegenerateImage}
+                onEditImage={handleEditImagePrompt}
+                onDeleteImage={setImageToDelete}
+                onOpenArtifacts={handleOpenArtifacts}
+                studyMode={user?.studyModeEnabled ?? false}
+                highlightUserMessages={user?.highlightUserMessages ?? true}
+                highlightAssistantAnswers={user?.highlightAssistantAnswers ?? true}
+                userMessageHighlightColor={user?.userMessageHighlightColor || '#818cf8'}
+                assistantAnswerHighlightColor={user?.assistantAnswerHighlightColor || '#fbbf24'}
+                ttsVoice={user?.ttsVoice || ''}
+                ttsSpeed={user?.ttsSpeed || 1}
+                preferredLanguage={user?.preferredLanguage || (currentLang === 'ar' ? 'ar-EG' : 'en-US')}
+                expanded={chatExpanded}
+              />
+            </motion.div>
           )}
+          </AnimatePresence>
           </section>
-          <footer className="bayan-chat-input-footer z-20 w-full shrink-0 bg-transparent px-2 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            {chatInput}
-          </footer>
+          {chatInput}
             </>
           )}
           </motion.div>
@@ -1567,6 +1632,8 @@ function Workspace() {
           )}
           </AnimatePresence>
           </motion.div>
+          </>
+          )}
         </main>
       </div>
       {homeTaskMode && <HomeTaskDialog mode={homeTaskMode} onClose={() => setHomeTaskMode(null)} onSubmit={handleHomeTaskSubmit} />}
