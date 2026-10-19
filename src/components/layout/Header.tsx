@@ -1,12 +1,9 @@
 import React from 'react';
-import { ModelSelector } from '../chat/ModelSelector';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { BookOpen, Globe2, Maximize2, Menu, Minimize2, Settings, Share2 } from 'lucide-react';
 import { useBayanAlert } from '../../contexts/AlertContext';
 
 interface HeaderProps {
-  selectedModel: string;
-  onSelectModel: (modelId: string) => void;
   onShare?: () => void;
   onToggleSidebar: () => void;
   isChatExpanded: boolean;
@@ -15,7 +12,7 @@ interface HeaderProps {
   studyMode?: boolean;
 }
 
-export function Header({ selectedModel, onSelectModel, onShare, onToggleSidebar, isChatExpanded, onToggleChatWidth, onOpenSettings, studyMode = false }: HeaderProps) {
+export function Header({ onShare, onToggleSidebar, isChatExpanded, onToggleChatWidth, onOpenSettings, studyMode = false }: HeaderProps) {
   const { currentLang, setLanguageMode, t } = useLanguage();
   const showAlert = useBayanAlert();
 
@@ -37,9 +34,6 @@ export function Header({ selectedModel, onSelectModel, onShare, onToggleSidebar,
             <span className="hidden sm:inline">{t('studyMode')}</span>
           </span>
         )}
-      </div>
-      <div className="bayan-header-model absolute left-1/2 min-w-0">
-        <ModelSelector selectedModel={selectedModel} onSelectModel={onSelectModel} />
       </div>
       <div className="bayan-header-actions absolute end-3 flex items-center gap-1.5 sm:end-6 sm:gap-2">
         <button

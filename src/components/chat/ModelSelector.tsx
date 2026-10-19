@@ -16,9 +16,10 @@ const compactModelNames: Record<string, string> = {
 interface ModelSelectorProps {
   selectedModel: string;
   onSelectModel: (modelId: string) => void;
+  placement?: 'below' | 'above';
 }
 
-export function ModelSelector({ selectedModel, onSelectModel }: ModelSelectorProps) {
+export function ModelSelector({ selectedModel, onSelectModel, placement = 'below' }: ModelSelectorProps) {
   const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -35,8 +36,13 @@ export function ModelSelector({ selectedModel, onSelectModel }: ModelSelectorPro
     const margin = 8;
     const width = Math.min(340, window.innerWidth - margin * 2);
     const headerBottom = trigger.closest('header')?.getBoundingClientRect().bottom ?? rect.bottom;
-    const top = Math.max(rect.bottom + margin, headerBottom + 4);
-    const height = Math.max(100, Math.min(440, window.innerHeight - top - margin));
+    const availableHeight = placement === 'above'
+      ? Math.max(100, rect.top - margin * 2)
+      : Math.max(100, window.innerHeight - Math.max(rect.bottom + margin, headerBottom + 4) - margin);
+    const height = Math.min(440, availableHeight);
+    const top = placement === 'above'
+      ? Math.max(margin, rect.top - height - margin)
+      : Math.max(rect.bottom + margin, headerBottom + 4);
     const isRtl = document.documentElement.dir === 'rtl';
     const alignedLeft = isRtl ? rect.right - width : rect.left;
     const left = Math.max(margin, Math.min(alignedLeft, window.innerWidth - width - margin));
@@ -69,7 +75,7 @@ export function ModelSelector({ selectedModel, onSelectModel }: ModelSelectorPro
         ]);
       });
     return () => controller.abort();
-  }, [isOpen]);
+  }, [isOpen, placement]);
 
   // Close on outside click
   useEffect(() => {
@@ -133,7 +139,7 @@ export function ModelSelector({ selectedModel, onSelectModel }: ModelSelectorPro
       </button>
 
       {isOpen && menuPosition && createPortal(
-        <div ref={menuRef} style={menuPosition} className="bayan-model-menu rounded-xl shadow-xl border z-[100] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div ref={menuRef} data-placement={placement} style={menuPosition} className="bayan-model-menu rounded-xl shadow-xl border z-[100] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
           {/* Search Header */}
           <div className="bayan-model-menu-header p-2 border-b">
             <div className="bayan-model-menu-search flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs text-neutral-800">

@@ -1493,6 +1493,7 @@ const SendMessageSchema = z.object({
   regenerate: z.boolean().optional().default(false),
   editMessageId: z.string().trim().min(1).max(128).optional(),
   thinkingModeEnabled: z.boolean().optional().default(true),
+  reasoningEffort: z.enum(['low', 'medium', 'high']).optional().default('medium'),
   webSearchConsent: z.boolean().optional().default(false),
   attachmentIds: z.array(z.string().uuid()).max(5).optional().default([]),
 });
@@ -3327,7 +3328,7 @@ app.post('/api/chat/send', rateLimiter({
       error: { code: 'VALIDATION_ERROR', message: parsed.error.issues[0]?.message || 'Invalid chat request.' },
     });
   }
-  const { conversationId, message, modelId, regenerate, editMessageId, thinkingModeEnabled, webSearchConsent, attachmentIds } = parsed.data;
+  const { conversationId, message, modelId, regenerate, editMessageId, thinkingModeEnabled, reasoningEffort, webSearchConsent, attachmentIds } = parsed.data;
   const override = user.dailyMessageLimitOverride;
   const defaultDailyLimit = user.plan === 'free' && !Number.isInteger(override)
     ? Number(await readPolicyAdminSetting('dailyMessageLimit', '50'))
@@ -3493,6 +3494,10 @@ app.post('/api/chat/send', rateLimiter({
       'Prioritize fast, direct responses: lead with the answer, keep routine replies concise, and provide more detail only when requested or needed for correctness.',
       'When answering a question, bold the direct answer. In summaries, use concise bullets and bold only the most important facts or takeaways; do not bold entire paragraphs.',
       thinkingMode ? 'This is a complex request. Think through the relevant steps carefully before answering. Verify assumptions, organize the response clearly, and do not reveal hidden chain-of-thought; provide only a concise conclusion and useful rationale.' : '',
+      `Reasoning effort preference: ${reasoningEffort}. ${reasoningEffort === 'high' ? 'Check edge cases and provide a thorough but concise answer; do not reveal hidden reasoning.' : reasoningEffort === 'low' ? 'Prefer the shortest correct answer and avoid unnecessary detail.' : 'Balance completeness and concision.'}`,
+      pendingFiles.some((file) => file.fileType.startsWith('image/'))
+        ? 'Analyze attached images directly when the selected model supports visual input. Ground observations in visible details and be transparent if an image cannot be inspected.'
+        : '',
       personalization ? `${personalization}.` : '',
     ].filter(Boolean).join('\n'),
   });

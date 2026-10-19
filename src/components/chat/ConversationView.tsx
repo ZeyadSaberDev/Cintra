@@ -25,6 +25,7 @@ interface VirtualMessageData {
   onRegenerate?: () => void;
   onEditMessage?: (messageId: string, content: string) => boolean | void | Promise<boolean | void>;
   onFeedback?: (messageId: string, rating: FeedbackRating) => void;
+  onSendSuggestedReply?: (message: string) => void;
   setRowSize: (index: number, size: number) => void;
 }
 
@@ -71,6 +72,7 @@ function VirtualMessageRow({ index, style, data }: ListChildComponentProps<Virtu
           onRegenerate={index === data.messages.length - 1 ? data.onRegenerate : undefined}
           onEditMessage={!data.isStreaming ? data.onEditMessage : undefined}
           onFeedback={data.onFeedback}
+          onSendSuggestedReply={data.onSendSuggestedReply}
         />
       </div>
     </div>
@@ -87,6 +89,7 @@ interface ConversationViewProps {
   onEditMessage?: (messageId: string, content: string) => boolean | void | Promise<boolean | void>;
   onSelectPrompt: (promptText: string) => void;
   onFeedback?: (messageId: string, rating: FeedbackRating) => void;
+  onSendSuggestedReply?: (message: string) => void;
   studyMode?: boolean;
   highlightUserMessages?: boolean;
   highlightAssistantAnswers?: boolean;
@@ -112,6 +115,7 @@ export function ConversationView({
   onEditMessage,
   onSelectPrompt,
   onFeedback,
+  onSendSuggestedReply,
   studyMode = false,
   highlightUserMessages = true,
   highlightAssistantAnswers = true,
@@ -196,8 +200,9 @@ export function ConversationView({
     onRegenerate,
     onEditMessage,
     onFeedback,
+    onSendSuggestedReply,
     setRowSize,
-  }), [messages, userName, studyMode, highlightUserMessages, highlightAssistantAnswers, userMessageHighlightColor, assistantAnswerHighlightColor, ttsVoice, ttsSpeed, preferredLanguage, onRegenerateImage, onEditImage, onDeleteImage, onOpenArtifacts, isThinking, isStreaming, onRegenerate, onEditMessage, onFeedback, setRowSize]);
+  }), [messages, userName, studyMode, highlightUserMessages, highlightAssistantAnswers, userMessageHighlightColor, assistantAnswerHighlightColor, ttsVoice, ttsSpeed, preferredLanguage, onRegenerateImage, onEditImage, onDeleteImage, onOpenArtifacts, isThinking, isStreaming, onRegenerate, onEditMessage, onFeedback, onSendSuggestedReply, setRowSize]);
 
   // Scroll smoothly for a new message and immediately for streamed token updates.
   useEffect(() => {
@@ -287,6 +292,7 @@ export function ConversationView({
                 onRegenerate={isLastAssistant && !isStreaming ? onRegenerate : undefined}
                 onEditMessage={!isStreaming ? onEditMessage : undefined}
                 onFeedback={onFeedback}
+                onSendSuggestedReply={onSendSuggestedReply}
               />
             );
           })}

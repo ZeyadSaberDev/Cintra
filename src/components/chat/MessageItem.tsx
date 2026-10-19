@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom';
 import { useLanguage } from '../../contexts/LanguageContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeKatex from 'rehype-katex';
 import {
   Search,
   ExternalLink,
@@ -31,9 +33,11 @@ import {
   Square,
   Smile,
   Loader2,
+  Calculator,
 } from 'lucide-react';
 import { exportResponseElement, responseFilenameBase, type ResponseExportFormat } from '../../../lib/responseExport';
 import { extractGeneratedArtifacts, stripGeneratedCodeBlocks } from '../../../lib/artifacts/generatedArtifacts';
+import { normalizeMathDelimiters, parseInteractiveOptions } from '../../../lib/messageContent';
 
 export type FeedbackRating = 'like' | 'dislike' | 'heart' | 'laugh' | 'thumbs_up' | 'celebrate' | 'thinking' | 'clap';
 const messageReactions: Array<{ emoji: string; asset: string; rating: FeedbackRating; label: string; labelAr: string }> = [
@@ -95,6 +99,7 @@ interface MessageItemProps {
   onEditImage?: () => void;
   onDeleteImage?: (attachmentId: string) => void;
   onOpenArtifacts?: (messageId: string, artifactId?: string) => void;
+  onSendSuggestedReply?: (message: string) => void;
 }
 
 function MessageItemComponent({
@@ -116,6 +121,7 @@ function MessageItemComponent({
   onEditImage,
   onDeleteImage,
   onOpenArtifacts,
+  onSendSuggestedReply,
 }: MessageItemProps) {
   const { t, currentLang } = useLanguage();
   const [copied, setCopied] = useState(false);
@@ -143,12 +149,78 @@ function MessageItemComponent({
   const [speechPaused, setSpeechPaused] = useState(false);
   const [audioDownloadBusy, setAudioDownloadBusy] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
+  const [selectedOptionByQuestion, setSelectedOptionByQuestion] = useState<Record<string, number>>({});
   const generatedArtifacts = React.useMemo(() => extractGeneratedArtifacts(message.content), [message.content]);
   const generatedCodeArtifacts = React.useMemo(
     () => generatedArtifacts.filter((artifact) => !['markdown', 'text'].includes(artifact.kind)),
     [generatedArtifacts],
   );
   const messageTextWithoutCode = React.useMemo(() => stripGeneratedCodeBlocks(message.content), [message.content]);
+  const contentBlocks = React.useMemo(
+    () => parseInteractiveOptions(normalizeMathDelimiters(messageTextWithoutCode)),
+    [messageTextWithoutCode],
+  );
+  const markdownComponents = {
+    code: ({ className, children, ...props }: React.ComponentProps<'code'>) => {
+      const isBlock = Boolean(className?.includes('language-'));
+      return isBlock
+        ? <code dir="ltr" className={className} {...props}>{children}</code>
+        : <code dir="ltr" className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[0.9em]" {...props}>{children}</code>;
+    },
+    pre: () => null,
+    p: ({ children }: { children?: React.ReactNode }) => <p className="my-2">{children}</p>,
+    li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
+    strong: ({ children }: { children?: React.ReactNode }) => (
+      <strong
+        style={{ '--bayan-answer-highlight-color': assistantAnswerHighlightColor } as React.CSSProperties}
+        className={highlightAssistantAnswers
+          ? 'bayan-answer-highlight box-decoration-clone rounded px-1 font-semibold'
+          : 'font-semibold'}
+      >
+        {children}
+      </strong>
+    ),
+    em: ({ children }: { children?: React.ReactNode }) => <em>{children}</em>,
+    del: ({ children }: { children?: React.ReactNode }) => <del>{children}</del>,
+    h1: ({ children }: { children?: React.ReactNode }) => <h1 className="my-4 text-2xl font-semibold">{children}</h1>,
+    h2: ({ children }: { children?: React.ReactNode }) => {
+      const heading = React.Children.toArray(children).filter((child) => typeof child === 'string').join(' ');
+      const isStage = /(stage|step|lesson|مرحلة|المرحلة|خطوة|الخطوة|درس|الدرس)/iu.test(heading);
+      const Icon = /(math|calcul|operation|function|معادلة|عملية|دوال|رياضيات)/iu.test(heading) ? Calculator : BookOpen;
+      return isStage
+        ? <h2 className="my-4 flex items-center gap-3 rounded-2xl border border-neutral-200/70 bg-neutral-100/60 px-4 py-3 text-xl font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.04]"><Icon size={19} className="shrink-0 text-[var(--bayan-accent)]" />{children}</h2>
+        : <h2 className="my-3 text-xl font-semibold">{children}</h2>;
+    },
+    h3: ({ children }: { children?: React.ReactNode }) => {
+      const heading = React.Children.toArray(children).filter((child) => typeof child === 'string').join(' ');
+      const isStage = /(stage|step|lesson|مرحلة|المرحلة|خطوة|الخطوة|درس|الدرس)/iu.test(heading);
+      const Icon = /(math|calcul|operation|function|معادلة|عملية|دوال|رياضيات)/iu.test(heading) ? Calculator : BookOpen;
+      return isStage
+        ? <h3 className="my-3 flex items-center gap-3 rounded-xl border border-neutral-200/70 bg-neutral-100/60 px-3.5 py-2.5 text-lg font-semibold shadow-sm dark:border-white/10 dark:bg-white/[0.04]"><Icon size={17} className="shrink-0 text-[var(--bayan-accent)]" />{children}</h3>
+        : <h3 className="my-3 text-lg font-semibold">{children}</h3>;
+    },
+    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+      <a href={href} target={href?.startsWith('/') && !href.startsWith('//') ? undefined : '_blank'} rel="noreferrer" className="text-blue-500 underline decoration-blue-300 underline-offset-2 hover:text-blue-700 hover:decoration-blue-500">
+        {children}
+      </a>
+    ),
+    blockquote: ({ children }: { children?: React.ReactNode }) => <blockquote className="my-3 border-l-2 border-neutral-300 pl-4 text-neutral-600 rtl:border-l-0 rtl:border-r-2 rtl:pl-0 rtl:pr-4">{children}</blockquote>,
+    td: ({ children }: { children?: React.ReactNode }) => <td className="border border-neutral-200 px-3 py-2">{children}</td>,
+    th: ({ children }: { children?: React.ReactNode }) => <th className="border border-neutral-200 bg-neutral-50 px-3 py-2 font-semibold">{children}</th>,
+    ul: ({ children }: { children?: React.ReactNode }) => <ul className="my-2 list-disc space-y-1 pl-6 rtl:pl-0 rtl:pr-6">{children}</ul>,
+    ol: ({ children }: { children?: React.ReactNode }) => <ol className="my-2 list-decimal space-y-1 pl-6 rtl:pl-0 rtl:pr-6">{children}</ol>,
+    table: ({ children }: { children?: React.ReactNode }) => <div className="my-3 max-w-full overflow-x-auto"><table className="w-full border-collapse text-start">{children}</table></div>,
+  };
+
+  const sendSelectedOptions = (blockIndex: number, action: string, questions: Array<{ prompt: string; options: string[] }>) => {
+    if (!onSendSuggestedReply) return;
+    const answers = questions.flatMap((question, questionIndex) => {
+      const selected = selectedOptionByQuestion[`${message.id}:${blockIndex}:${questionIndex}`];
+      return selected === undefined ? [] : [`${question.prompt}\n${questionIndex + 1}. ${question.options[selected]}`];
+    });
+    if (!answers.length) return;
+    onSendSuggestedReply(`${action}\n\n${answers.join('\n')}`);
+  };
 
   React.useEffect(() => {
     const previewUrls = (message.attachments || [])
@@ -709,49 +781,59 @@ function MessageItemComponent({
             )
           ) : (
             <>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
-            components={{
-              code: ({ className, children, ...props }) => {
-                const isBlock = Boolean(className?.includes('language-'));
-                return isBlock
-                  ? <code dir="ltr" className={className} {...props}>{children}</code>
-                  : <code dir="ltr" className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[0.9em]" {...props}>{children}</code>;
-              },
-              pre: () => null,
-              p: ({ children }) => <p className="my-2">{children}</p>,
-              li: ({ children }) => <li>{children}</li>,
-              strong: ({ children }) => (
-                <strong
-                  style={{ '--bayan-answer-highlight-color': assistantAnswerHighlightColor } as React.CSSProperties}
-                  className={highlightAssistantAnswers
-                    ? 'bayan-answer-highlight box-decoration-clone rounded px-1 font-semibold'
-                    : 'font-semibold'}
+          {contentBlocks.map((block, blockIndex) => block.kind === 'markdown'
+            ? block.content.trim() && (
+                <ReactMarkdown
+                  key={`markdown-${blockIndex}`}
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                  components={markdownComponents}
                 >
-                  {children}
-                </strong>
-              ),
-              em: ({ children }) => <em>{children}</em>,
-              del: ({ children }) => <del>{children}</del>,
-              h1: ({ children }) => <h1 className="my-4 text-2xl font-semibold">{children}</h1>,
-              h2: ({ children }) => <h2 className="my-3 text-xl font-semibold">{children}</h2>,
-              h3: ({ children }) => <h3 className="my-3 text-lg font-semibold">{children}</h3>,
-              a: ({ href, children }) => (
-                <a href={href} target={href?.startsWith('/') && !href.startsWith('//') ? undefined : '_blank'} rel="noreferrer" className="text-blue-500 underline decoration-blue-300 underline-offset-2 hover:text-blue-700 hover:decoration-blue-500">
-                  {children}
-                </a>
-              ),
-              blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-neutral-300 pl-4 text-neutral-600 rtl:border-l-0 rtl:border-r-2 rtl:pl-0 rtl:pr-4">{children}</blockquote>,
-              td: ({ children }) => <td className="border border-neutral-200 px-3 py-2">{children}</td>,
-              th: ({ children }) => <th className="border border-neutral-200 bg-neutral-50 px-3 py-2 font-semibold">{children}</th>,
-              ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-6 rtl:pl-0 rtl:pr-6">{children}</ul>,
-              ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-6 rtl:pl-0 rtl:pr-6">{children}</ol>,
-              table: ({ children }) => <div className="my-3 max-w-full overflow-x-auto"><table className="w-full border-collapse text-start">{children}</table></div>,
-            }}
-          >
-            {messageTextWithoutCode}
-          </ReactMarkdown>
+                  {block.content}
+                </ReactMarkdown>
+              )
+            : (
+                <section key={`options-${blockIndex}`} className="my-4 space-y-4 rounded-2xl border border-neutral-200/80 bg-neutral-100/60 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.04]" aria-label={currentLang === 'ar' ? 'بطاقة خيارات تفاعلية' : 'Interactive options'}>
+                  {block.questions.map((question, questionIndex) => {
+                    const groupKey = `${message.id}:${blockIndex}:${questionIndex}`;
+                    return (
+                      <fieldset key={groupKey} className="space-y-2.5">
+                        <legend className="mb-2 flex items-start gap-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                          <span className="bayan-accent-soft flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs">{questionIndex + 1}</span>
+                          {question.prompt}
+                        </legend>
+                        {question.options.map((option, optionIndex) => {
+                          const selected = selectedOptionByQuestion[groupKey] === optionIndex;
+                          return (
+                            <label key={`${groupKey}:${optionIndex}`} className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${selected ? 'bayan-accent-soft' : 'border-neutral-200/70 bg-white/70 hover:border-neutral-300 hover:bg-white dark:border-white/10 dark:bg-black/10 dark:hover:bg-white/[0.06]'}`}>
+                              <input
+                                type="radio"
+                                name={groupKey}
+                                value={option}
+                                checked={selected}
+                                disabled={!onSendSuggestedReply}
+                                onChange={() => setSelectedOptionByQuestion((current) => ({ ...current, [groupKey]: optionIndex }))}
+                                className="mt-0.5 h-4 w-4 accent-[var(--bayan-accent)]"
+                              />
+                              <span className="min-w-0 flex-1">{option}</span>
+                            </label>
+                          );
+                        })}
+                      </fieldset>
+                    );
+                  })}
+                  {onSendSuggestedReply && (
+                    <button
+                      type="button"
+                      disabled={!block.questions.some((_, questionIndex) => selectedOptionByQuestion[`${message.id}:${blockIndex}:${questionIndex}`] !== undefined)}
+                      onClick={() => sendSelectedOptions(blockIndex, block.action || (currentLang === 'ar' ? 'إرسال الإجابة' : 'Submit answer'), block.questions)}
+                      className="bayan-accent-solid w-full rounded-full px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {block.action || (currentLang === 'ar' ? 'إرسال الإجابة' : 'Submit answer')}
+                    </button>
+                  )}
+                </section>
+              ))}
           {message.isStreaming && <span className="bayan-streaming-caret" aria-hidden="true" />}
           {!message.isStreaming && generatedCodeArtifacts.length > 0 && (
             <div className="mt-3 grid max-w-xl gap-2">

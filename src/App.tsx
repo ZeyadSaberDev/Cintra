@@ -6,7 +6,6 @@ import { Sidebar, SidebarConversation } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { ConversationView } from './components/chat/ConversationView';
 import { ChatInput } from './components/chat/ChatInput';
-import { ModelSelector } from './components/chat/ModelSelector';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { GuestBanner } from './components/layout/GuestBanner';
 import { AnnouncementBanner } from './components/layout/AnnouncementBanner';
@@ -109,6 +108,10 @@ function Workspace() {
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(() => (
     localStorage.getItem('bayan_thinking_mode') === 'true'
   ));
+  const [reasoningEffort, setReasoningEffort] = useState<'low' | 'medium' | 'high'>(() => {
+    const storedEffort = localStorage.getItem('bayan_reasoning_effort');
+    return storedEffort === 'low' || storedEffort === 'high' ? storedEffort : 'medium';
+  });
   const [chatExpanded, setChatExpanded] = useState<boolean>(() => localStorage.getItem('bayan_chat_expanded') === 'true');
 
   const [conversations, setConversations] = useState<SidebarConversation[]>([]);
@@ -777,6 +780,7 @@ function Workspace() {
           regenerate,
           editMessageId,
           thinkingModeEnabled: thinkingEnabled,
+          reasoningEffort,
           webSearchConsent,
           attachmentIds: uploadedFiles.map((file) => file.id),
         }),
@@ -1260,6 +1264,13 @@ function Workspace() {
   };
   const chatInput = (
     <ChatInput
+      selectedModel={selectedModel}
+      onSelectModel={handleSelectModel}
+      reasoningEffort={reasoningEffort}
+      onReasoningEffortChange={(effort) => {
+        setReasoningEffort(effort);
+        localStorage.setItem('bayan_reasoning_effort', effort);
+      }}
       onSendMessage={(message, files, webSearchConsent) => {
         void handleSendMessage(message, files, false, undefined, undefined, webSearchConsent);
       }}
@@ -1383,9 +1394,6 @@ function Workspace() {
                 <Sparkles size={15} />{currentLang === 'ar' ? 'الخطط' : 'Plans'}
               </button>
             </div>
-            <div className="bayan-home-model">
-              <ModelSelector selectedModel={selectedModel} onSelectModel={handleSelectModel} />
-            </div>
             <div className="bayan-home-header-end absolute flex items-center gap-2">
               <div className="bayan-home-language flex items-center gap-2 rounded-full px-3 py-2" dir="ltr">
                 <button type="button" onClick={() => setLanguageMode(currentLang === 'ar' ? 'en' : 'ar')} className="min-w-6 text-xs font-semibold">
@@ -1412,8 +1420,6 @@ function Workspace() {
           </header>
         ) : (
           <Header
-            selectedModel={selectedModel}
-            onSelectModel={handleSelectModel}
             onShare={() => (activeChatId ? handleShareChat(activeChatId) : undefined)}
             onToggleSidebar={handleToggleSidebar}
             isChatExpanded={chatExpanded}
@@ -1504,6 +1510,7 @@ function Workspace() {
               onEditMessage={!isStreaming ? handleEditMessage : undefined}
               onSelectPrompt={(prompt) => handleSendMessage(prompt)}
               onFeedback={handleFeedback}
+              onSendSuggestedReply={(reply) => { void handleSendMessage(reply); }}
               onRegenerateImage={handleRegenerateImage}
               onEditImage={handleEditImagePrompt}
               onDeleteImage={setImageToDelete}

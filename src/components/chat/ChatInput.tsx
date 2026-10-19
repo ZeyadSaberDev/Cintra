@@ -4,6 +4,9 @@ import { ArrowUp, Paperclip, Square, X, FileText, Mic, BookOpen, Plus, Sparkles,
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useBayanAlert } from '../../contexts/AlertContext';
 import { hasExplicitWebSearchIntent } from '../../../lib/web/searchIntent';
+import { ModelSelector } from './ModelSelector';
+
+type ReasoningEffort = 'low' | 'medium' | 'high';
 
 interface SpeechRecognitionResultEvent {
   results: ArrayLike<ArrayLike<{ transcript: string }>>;
@@ -25,6 +28,10 @@ interface SpeechRecognitionConstructor {
 
 interface ChatInputProps {
   onSendMessage: (message: string, files: File[], webSearchConsent?: boolean) => void;
+  selectedModel: string;
+  onSelectModel: (modelId: string) => void;
+  reasoningEffort: ReasoningEffort;
+  onReasoningEffortChange: (effort: ReasoningEffort) => void;
   isGenerating?: boolean;
   onStopGeneration?: () => void;
   disabled?: boolean;
@@ -52,6 +59,10 @@ const ACCEPTED_FILES = '.jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.csv,.json';
 
 export function ChatInput({
   onSendMessage,
+  selectedModel,
+  onSelectModel,
+  reasoningEffort,
+  onReasoningEffortChange,
   isGenerating = false,
   onStopGeneration,
   disabled = false,
@@ -75,6 +86,8 @@ export function ChatInput({
   const showAlert = useBayanAlert();
   const [text, setText] = useState('');
   const [featuresOpen, setFeaturesOpen] = useState(false);
+  const [effortOpen, setEffortOpen] = useState(false);
+  const [removingImages, setRemovingImages] = useState<File[]>([]);
   const [featuresMounted, setFeaturesMounted] = useState(false);
   const [featuresVisible, setFeaturesVisible] = useState(false);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
@@ -426,6 +439,11 @@ export function ChatInput({
     showAlert(t('longTextConvertedToFile'), 'info', currentLang);
   };
 
+  const removeImage = (file: File) => {
+    if (uploadStatus === 'uploading') return;
+    setRemovingImages((current) => current.includes(file) ? current : [...current, file]);
+  };
+
   const pdfKey = (file: File) => `${file.name}:${file.size}:${file.lastModified}`;
 
   const runPdfOperation = async (file: File, operation: 'extract' | 'summarize') => {
@@ -552,7 +570,7 @@ export function ChatInput({
       )}
       {files.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2" aria-live="polite">
-          {files.map((file, index) => (
+          {files.map((file, index) => file.type.startsWith('image/') ? null : (
             <div key={`${file.name}-${index}`} className="relative flex min-w-24 max-w-52 items-center gap-2 overflow-hidden rounded-xl border border-neutral-200 bg-white p-2 shadow-sm">
               {file.type.startsWith('image/') ? (
                 <img src={previews[index]} alt="" className="h-10 w-10 rounded-lg object-cover" decoding="async" />
@@ -650,7 +668,33 @@ export function ChatInput({
           <span>{currentLang === 'ar' ? 'البحث على الويب مفعّل' : 'Web search enabled'}</span>
         </div>
       )}
-      <form onSubmit={handleSubmit} className={`bayan-composer flex flex-col gap-1 rounded-3xl px-2 py-2.5 transition-colors ${homeMode ? 'bayan-home-composer border-0 bg-transparent shadow-none' : 'bayan-chat-composer'}`}>
+      <form onSubmit={handleSubmit} className={`bayan-composer flex flex-col gap-1 rounded-3xl px-2 py-2.5 transition-colors ${files.some((file) => file.type.startsWith('image/')) ? 'has-image' : ''} ${homeMode ? 'bayan-home-composer border-0 bg-transparent shadow-none' : 'bayan-chat-composer'}`}>
+        {files.some((file) => file.type.startsWith('image/')) && (
+          <div className="flex flex-wrap gap-2 px-1 pt-1" aria-label={currentLang === 'ar' ? 'الصور المرفقة' : 'Attached images'}>
+            {files.map((file, index) => file.type.startsWith('image/') && (
+              <div
+                key={`${file.name}-${index}`}
+                onAnimationEnd={() => {
+                  if (!removingImages.includes(file)) return;
+                  setFiles((current) => current.filter((item) => item !== file));
+                  setRemovingImages((current) => current.filter((item) => item !== file));
+                }}
+                className={`bayan-image-thumbnail group/image relative h-[72px] w-[72px] overflow-hidden rounded-xl border border-neutral-200 shadow-sm dark:border-white/15 ${removingImages.includes(file) ? 'is-removing' : ''}`}
+              >
+                <img src={previews[index]} alt={file.name} className="h-full w-full object-cover" decoding="async" />
+                <button
+                  type="button"
+                  disabled={uploadStatus === 'uploading'}
+                  onClick={() => removeImage(file)}
+                  className="absolute end-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/65 text-white opacity-90 transition hover:bg-black disabled:opacity-40"
+                  aria-label={t('removeFile', { file: file.name })}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           ref={composerRef}
           value={text}
@@ -667,6 +711,39 @@ export function ChatInput({
         <input ref={fileRef} type="file" multiple accept={ACCEPTED_FILES} disabled={disabled || uploadStatus === 'uploading'} className="hidden" onChange={(e) => addFiles(Array.from(e.target.files || []))} />
         <div className="bayan-composer-toolbar flex w-full items-center justify-between gap-2 px-0.5">
           <div className="flex min-w-0 items-center gap-1.5">
+            <ModelSelector selectedModel={selectedModel} onSelectModel={onSelectModel} placement="above" />
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setEffortOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={effortOpen}
+                className="flex h-8 items-center gap-1 rounded-full border border-neutral-200 px-2.5 text-[11px] font-medium text-neutral-600 transition hover:bg-neutral-100 dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/[0.06]"
+                title={currentLang === 'ar' ? 'مستوى التفكير' : 'Reasoning effort'}
+              >
+                <Brain size={13} />
+                <span className="bayan-effort-label">{currentLang === 'ar' ? `الجهد: ${{ low: 'منخفض', medium: 'متوسط', high: 'مرتفع' }[reasoningEffort]}` : `Effort: ${reasoningEffort[0].toUpperCase()}${reasoningEffort.slice(1)}`}</span>
+              </button>
+              {effortOpen && (
+                <div role="menu" className="absolute bottom-full left-0 z-50 mb-2 min-w-36 rounded-xl border border-neutral-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-neutral-900">
+                  {(['low', 'medium', 'high'] as const).map((effort) => (
+                    <button
+                      key={effort}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={reasoningEffort === effort}
+                      onClick={() => { onReasoningEffortChange(effort); setEffortOpen(false); }}
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition hover:bg-neutral-100 dark:hover:bg-white/[0.08] ${reasoningEffort === effort ? 'font-semibold text-[var(--bayan-accent)]' : 'text-neutral-700 dark:text-neutral-200'}`}
+                    >
+                      {currentLang === 'ar'
+                        ? { low: 'منخفض', medium: 'متوسط', high: 'مرتفع' }[effort]
+                        : effort[0].toUpperCase() + effort.slice(1)}
+                      {reasoningEffort === effort && <span aria-hidden="true">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div ref={featuresRef} className="relative shrink-0">
               <button
                 ref={featuresTriggerRef}
@@ -693,32 +770,32 @@ export function ChatInput({
                 <Brain size={16} />{currentLang === 'ar' ? 'فكّر' : 'Think'}
               </button>
             )}
-            {homeMode && (
-              <button
-                type="button"
-                onClick={() => void toggleVoiceInput()}
-                disabled={(!speechConstructor && !canRecordAudio) || disabled || isGenerating || isTranscribing}
-                aria-label={isRecording ? t('stopGenerating') : t('voiceInput')}
-                title={!speechConstructor && !canRecordAudio ? t('voiceUnsupported') : t('voiceInput')}
-                className={`bayan-home-mic hidden h-8 w-8 shrink-0 items-center justify-center rounded-full sm:flex ${isRecording ? 'text-red-400' : 'text-neutral-300 hover:bg-neutral-700 hover:text-white'}`}
-              >
-                <Mic size={17} />
-              </button>
-            )}
           </div>
-          <button
-            type="submit"
-            disabled={uploadStatus === 'uploading' || ((!text.trim() && !files.length && !isGenerating) || disabled)}
-            title={uploadStatus === 'uploading' ? t('uploadingFile') : isGenerating ? t('stopGenerating') : t('sendMessage')}
-            aria-label={uploadStatus === 'uploading' ? t('uploadingFile') : isGenerating ? t('stopGenerating') : t('sendMessage')}
-            className={`bayan-composer-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
-              text.trim() || files.length || isGenerating ? 'is-send-ready' : 'is-send-disabled'
-            } ${isGenerating ? 'is-send-stop animate-stop-pulse' : ''}`}
-          >
-            {uploadStatus === 'uploading'
-              ? <Loader2 size={15} className="animate-spin" />
-              : isGenerating ? <Square size={12} className="fill-current" /> : <ArrowUp size={17} strokeWidth={2.4} />}
-          </button>
+          <div className="bayan-composer-actions flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => void toggleVoiceInput()}
+              disabled={(!speechConstructor && !canRecordAudio) || disabled || isGenerating || isTranscribing}
+              aria-label={isRecording ? t('stopGenerating') : t('voiceInput')}
+              title={!speechConstructor && !canRecordAudio ? t('voiceUnsupported') : t('voiceInput')}
+              className={`bayan-composer-mic flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40 ${homeMode ? 'bayan-home-mic' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-white/[0.08]'}`}
+            >
+              <Mic size={17} />
+            </button>
+            <button
+              type="submit"
+              disabled={uploadStatus === 'uploading' || ((!text.trim() && !files.length && !isGenerating) || disabled)}
+              title={uploadStatus === 'uploading' ? t('uploadingFile') : isGenerating ? t('stopGenerating') : t('sendMessage')}
+              aria-label={uploadStatus === 'uploading' ? t('uploadingFile') : isGenerating ? t('stopGenerating') : t('sendMessage')}
+              className={`bayan-composer-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                text.trim() || files.length || isGenerating ? 'is-send-ready' : 'is-send-disabled'
+              } ${isGenerating ? 'is-send-stop animate-stop-pulse' : ''}`}
+            >
+              {uploadStatus === 'uploading'
+                ? <Loader2 size={15} className="animate-spin" />
+                : isGenerating ? <Square size={12} className="fill-current" /> : <ArrowUp size={17} strokeWidth={2.4} />}
+            </button>
+          </div>
         </div>
       </form>
       {featuresMounted && createPortal(

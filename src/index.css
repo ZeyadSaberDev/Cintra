@@ -2,6 +2,17 @@
 @custom-variant rtl (&:where([dir="rtl"], [dir="rtl"] *));
 @custom-variant ltr (&:where([dir="ltr"], [dir="ltr"] *));
 
+.katex { direction: ltr; unicode-bidi: isolate; }
+.katex-display {
+  max-width: 100%;
+  margin: .85rem 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: .2rem 0 .35rem;
+  text-align: center;
+}
+.katex-display > .katex { direction: ltr; }
+
 @layer base {
   :root {
     --bayan-bg: #fafafa;
@@ -403,6 +414,33 @@
 }
 .bayan-chat-composer .bayan-composer-text { color: var(--bayan-text); }
 .bayan-chat-composer .bayan-composer-text::placeholder { color: var(--bayan-muted); }
+.bayan-composer .bayan-model-trigger {
+  border-color: var(--bayan-border);
+  background: color-mix(in srgb, var(--bayan-surface) 78%, transparent);
+  color: var(--bayan-text);
+}
+.bayan-image-thumbnail { animation: image-thumbnail-appear 180ms cubic-bezier(.2,.8,.2,1) both; }
+.bayan-image-thumbnail.is-removing {
+  animation: image-thumbnail-disappear 150ms ease-in both;
+  pointer-events: none;
+}
+@keyframes image-thumbnail-appear {
+  from { opacity: 0; transform: scale(.94) translateY(3px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes image-thumbnail-disappear {
+  to { opacity: 0; transform: scale(.9); }
+}
+.bayan-home-composer .bayan-model-trigger {
+  border-color: var(--bayan-home-border);
+  background: var(--bayan-home-glass);
+  color: var(--bayan-home-text);
+}
+.bayan-model-menu[data-placement="above"] { animation: model-menu-rise 180ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes model-menu-rise {
+  from { opacity: 0; transform: translateY(8px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .bayan-composer-send {
   color: var(--bayan-text);
   border: 1px solid color-mix(in srgb, var(--bayan-text) 10%, transparent);
@@ -2485,7 +2523,7 @@ html[data-theme="dark"] .bayan-settings-modal { box-shadow: 0 30px 100px rgb(0 0
 .bayan-home-composer {
   display: grid;
   min-height: 106px;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) 84px;
   grid-template-rows: 42px minmax(40px, auto);
   gap: 0 8px;
   border: 1px solid rgb(255 255 255 / 95%);
@@ -2514,10 +2552,8 @@ html[data-theme="dark"] .bayan-settings-modal { box-shadow: 0 30px 100px rgb(0 0
   gap: 10px;
 }
 .bayan-home-composer .bayan-composer-send {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  align-self: center;
-  justify-self: center;
+  grid-column: auto;
+  grid-row: auto;
   width: 44px;
   height: 44px;
   border: 0;
@@ -2525,6 +2561,27 @@ html[data-theme="dark"] .bayan-settings-modal { box-shadow: 0 30px 100px rgb(0 0
   color: #fff;
   box-shadow: 0 7px 18px rgb(92 119 233 / 27%);
 }
+.bayan-home-composer .bayan-composer-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: end;
+  justify-self: end;
+  gap: 2px;
+}
+.bayan-home-composer .bayan-home-mic {
+  width: 34px;
+  height: 34px;
+  color: var(--bayan-home-muted);
+}
+.bayan-home-composer.has-image { grid-template-rows: auto 42px minmax(40px, auto); }
+.bayan-home-composer.has-image > div[aria-label="Attached images"],
+.bayan-home-composer.has-image > div[aria-label="الصور المرفقة"] {
+  grid-column: 1 / span 2;
+  grid-row: 1;
+}
+.bayan-home-composer.has-image .bayan-composer-text { grid-row: 3; }
+.bayan-home-composer.has-image .bayan-composer-toolbar > div:first-child { grid-row: 2; }
+.bayan-home-composer.has-image .bayan-composer-actions { grid-row: 2 / span 2; }
 .bayan-home-composer .bayan-composer-send.is-send-disabled { opacity: 1; }
 .bayan-home-composer .bayan-composer-features {
   width: 28px;
@@ -2847,6 +2904,9 @@ html[data-theme="dark"] .bayan-sidebar .bayan-sidebar-upgrade:hover { border-col
   .bayan-home-action-arrow { bottom: 10px; left: 12px; width: 25px; height: 25px; }
 }
 @media (max-width: 480px) {
+  .bayan-effort-label { display: none; }
+  .bayan-composer .bayan-model-trigger { max-width: min(42vw, 190px); }
+  .bayan-composer .bayan-model-trigger > span:first-child { max-width: 88px; }
   .bayan-home-header-start > button:nth-child(2),
   .bayan-home-chat-mode { display: none; }
   .bayan-home-model .bayan-model-trigger { max-width: min(calc(100vw - 164px), 290px); }
