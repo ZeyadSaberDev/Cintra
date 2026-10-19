@@ -561,6 +561,14 @@ export async function streamChatCompletion({
     role: 'system',
     content: CINTRA_IDENTITY_POLICY,
   });
+  preparedMessages.push({
+    role: 'system',
+    content: [
+      'For a user-requested illustrated guide, or a multi-step technical explanation where a visual materially helps, include an internal image request on its own line using exactly [[CINTRA_IMAGE: concise, specific illustration prompt]]. The server replaces valid requests with generated, authenticated inline images; never invent image URLs or output the internal marker as a claimed image.',
+      'Request no more than two images per answer, combining related steps into a single clear instructional diagram when useful. Generate illustrative diagrams, not fabricated screenshots, product interfaces, or evidence. Do not request images for routine answers or when visuals would not improve clarity.',
+      'If the user needs a real screenshot or current visual evidence, do not fabricate it; explain that a verified screenshot is unavailable unless one was actually provided or retrieved from a trustworthy source.',
+    ].join(' '),
+  });
   const includesImageInput = messages.some((message) => (
     message.role === 'user'
     && Array.isArray(message.content)

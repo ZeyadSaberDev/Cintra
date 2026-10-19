@@ -149,4 +149,69 @@ export function createIdentityAwareStreamFilter(): {
   };
 }
 
+export type InlineImageStreamEvent =
+  | { type: 'text'; content: string }
+  | { type: 'image'; prompt: string };
+
+const INLINE_IMAGE_MARKER = '[[CINTRA_IMAGE:';
+
+export function createInlineImageStreamFilter(maxImages = 2): {
+  push: (chunk: string) => InlineImageStreamEvent[];
+  finish: () => InlineImageStreamEvent[];
+} {
+  let pending = '';
+  let imageCount = 0;
+
+  const drain = (final: boolean): InlineImageStreamEvent[] => {
+    const events: InlineImageStreamEvent[] = [];
+    while (pending) {
+      const markerStart = pending.indexOf(INLINE_IMAGE_MARKER);
+      if (markerStart < 0) {
+        const safeLength = final ? pending.length : Math.max(0, pending.length - INLINE_IMAGE_MARKER.length + 1);
+        if (safeLength) {
+          events.push({ type: 'text', content: pending.slice(0, safeLength) });
+          pending = pending.slice(safeLength);
+        }
+        break;
+      }
+      if (markerStart > 0) {
+        events.push({ type: 'text', content: pending.slice(0, markerStart) });
+        pending = pending.slice(markerStart);
+      }
+
+      const markerEnd = pending.indexOf(']]', INLINE_IMAGE_MARKER.length);
+      if (markerEnd < 0) {
+        if (pending.length > INLINE_IMAGE_MARKER.length + 1000) {
+          events.push({ type: 'text', content: pending.slice(0, INLINE_IMAGE_MARKER.length) });
+          pending = pending.slice(INLINE_IMAGE_MARKER.length);
+          continue;
+        }
+        if (final) {
+          pending = '';
+        }
+        break;
+      }
+
+      const prompt = pending.slice(INLINE_IMAGE_MARKER.length, markerEnd).trim();
+      pending = pending.slice(markerEnd + 2);
+      if (!prompt || prompt.length > 1000) continue;
+      if (imageCount < maxImages) {
+        events.push({ type: 'image', prompt });
+        imageCount++;
+      }
+    }
+    return events;
+  };
+
+  return {
+    push(chunk) {
+      pending += chunk;
+      return drain(false);
+    },
+    finish() {
+      return drain(true);
+    },
+  };
+}
+
 export { IDENTITY_RESPONSE };

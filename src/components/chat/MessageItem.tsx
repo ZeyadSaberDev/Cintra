@@ -173,6 +173,9 @@ function MessageItemComponent({
         : <code dir="ltr" className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[0.9em]" {...props}>{children}</code>;
     },
     pre: () => null,
+    img: ({ src, alt, ...props }: React.ComponentProps<'img'>) => src
+      ? <img src={src} alt={alt || ''} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="bayan-inline-explanatory-image" {...props} />
+      : null,
     div: ({ className, children, ...props }: React.ComponentProps<'div'>) => (
       className?.split(/\s+/u).includes('katex-display')
         ? <div className="bayan-formula-card"><div className={className} {...props}>{children}</div></div>
@@ -521,9 +524,13 @@ function MessageItemComponent({
     if (selection && message.content.includes(selection)) setSelectedText(selection.slice(0, 5000));
   };
 
-  const attachmentList = message.attachments?.length ? (
+  const inlineImageAttachmentIds = new Set(
+    Array.from(message.content.matchAll(/!\[[^\]]*\]\(\/api\/attachments\/([^)\s]+)\)/gu), (match) => match[1]),
+  );
+  const visibleAttachments = message.attachments?.filter((attachment) => !inlineImageAttachmentIds.has(attachment.id));
+  const attachmentList = visibleAttachments?.length ? (
     <div className="mb-2 flex flex-wrap gap-2">
-      {message.attachments.map((attachment) => {
+      {visibleAttachments.map((attachment) => {
         const isImage = attachment.fileType.startsWith('image/');
         const isUploading = attachment.uploadState === 'uploading';
         const uploadFailed = attachment.uploadState === 'failed';
@@ -1058,7 +1065,7 @@ function MessageItemComponent({
               <RotateCcw size={14} />
             </button>
           )}
-          {message.attachments?.some((attachment) => attachment.fileType.startsWith('image/')) && onRegenerateImage && (
+          {message.attachments?.some((attachment) => attachment.fileType.startsWith('image/') && !inlineImageAttachmentIds.has(attachment.id)) && onRegenerateImage && (
             <button type="button" onClick={onRegenerateImage} title={currentLang === 'ar' ? 'إعادة إنشاء الصورة' : 'Regenerate image'} aria-label={currentLang === 'ar' ? 'إعادة إنشاء الصورة' : 'Regenerate image'} className="cursor-pointer rounded-md p-1 transition-colors hover:bg-neutral-100 hover:text-neutral-900">
               <RotateCcw size={14} />
             </button>

@@ -1045,6 +1045,22 @@ html[data-theme="dark"] .bayan-action-toast {
 .bayan-assistant-message { overflow-wrap: anywhere; }
 .bayan-assistant-message table { min-width: max-content; }
 .bayan-assistant-message pre { max-width: 100%; }
+.bayan-inline-explanatory-image {
+  display: block;
+  width: min(100%, 34rem);
+  max-height: 28rem;
+  margin: 1rem auto;
+  border: 1px solid color-mix(in srgb, var(--bayan-border) 86%, var(--bayan-text) 14%);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--bayan-surface) 92%, var(--bayan-text) 8%);
+  object-fit: contain;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
+  animation: inline-image-arrive 320ms cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes inline-image-arrive {
+  from { opacity: 0; transform: translateY(6px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .bayan-message-tools {
   min-height: 30px;
   align-items: center;
@@ -3404,5 +3420,6 @@ html[data-theme="auto"] .bayan-entry-mark { box-shadow: 0 8px 24px color-mix(in 
   .bayan-home-action-card { transition-duration: 1ms; }
   .bayan-image-thumbnail,
   .bayan-image-thumbnail.is-removing { animation-duration: 1ms; }
+  .bayan-inline-explanatory-image { animation: none; }
   .bayan-message-thread { scroll-behavior: auto; }
 }

@@ -4,6 +4,7 @@ import {
   buildImageGenerationPayload,
   extractGeneratedImage,
   extractImageProviderError,
+  generateInlineImage,
   getImageGenerationsUrl,
   getImageSize,
   imageProviderError,
@@ -14,6 +15,38 @@ test('normalizes image API base URLs and preserves an explicit image endpoint', 
   assert.equal(getImageGenerationsUrl('https://api.example/v1/chat/completions'), 'https://api.example/v1/images/generations');
   assert.equal(getImageGenerationsUrl('https://api.example/custom/images'), 'https://api.example/custom/images/generations');
   assert.equal(getImageGenerationsUrl('https://api.example/custom/images/generations'), 'https://api.example/custom/images/generations');
+});
+
+test('requests a real inline image from the configured generator and verifies its image bytes', async () => {
+  const originalFetch = globalThis.fetch;
+  let request: { url: string; init?: RequestInit } | undefined;
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    request = { url: String(input), init };
+    return new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), {
+      headers: { 'content-type': 'image/png' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await generateInlineImage({
+      configuredUrl: 'https://images.example/v1',
+      apiKey: 'server-only-test-key',
+      model: 'cf/black-forest-labs/flux-1-schnell',
+      prompt: 'A clear diagram of a desktop backup workflow',
+      signal: new AbortController().signal,
+    });
+
+    assert.equal(request?.url, 'https://images.example/v1/images/generations');
+    assert.equal(new Headers(request?.init?.headers).get('authorization'), 'Bearer server-only-test-key');
+    assert.deepEqual(JSON.parse(String(request?.init?.body)), {
+      model: 'cf/black-forest-labs/flux-1-schnell',
+      prompt: 'A clear diagram of a desktop backup workflow',
+    });
+    assert.equal(result.mimeType, 'image/png');
+    assert.equal(result.bytes.length, 8);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('uses DALL-E 3-supported dimensions and keeps compatible sizes for other models', () => {

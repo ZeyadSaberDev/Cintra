@@ -94,6 +94,7 @@ import {
   buildImageGenerationPayload,
   extractGeneratedImage,
   extractImageProviderError,
+  generateInlineImage,
   getImageGenerationsUrl,
   imageProviderError,
 } from './lib/ai/imageGeneration.js';
@@ -106,6 +107,7 @@ import { messageHasLinks, readLinkedContent } from './lib/web/linkReader.js';
 import { formatWebSearchContext, searchWeb, shouldSearchWebWithConsent } from './lib/web/webSearch.js';
 import {
   createIdentityAwareStreamFilter,
+  createInlineImageStreamFilter,
   filterIdentityResponse,
   IDENTITY_RESPONSE,
   isIdentityOnlyQuestion,
@@ -2921,7 +2923,10 @@ app.get('/api/attachments/:id', asyncRoute(async (req: Request, res: Response) =
   const attachment = await records('Attachment').get(req.params.id);
   const message = attachment ? await records('Message').get(attachment.messageId) : null;
   const conversation = message ? await conversationRepo.findById(message.conversationId) : null;
-  if (!attachment || conversation?.userId !== user.id) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Attachment not found.' } });
+  const isOwnedInlineImage = attachment?.inlineImage === true && attachment.userId === user.id;
+  if (!attachment || (!isOwnedInlineImage && conversation?.userId !== user.id)) {
+    return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Attachment not found.' } });
+  }
   if (!await sendStoredFile(res, String(attachment.fileUrl), String(attachment.fileType),
     `inline; filename*=UTF-8''${encodeURIComponent(String(attachment.fileName))}`)) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Attachment file is unavailable.' } });
@@ -3687,12 +3692,156 @@ app.post('/api/chat/send', rateLimiter({
   let fullAiResponse = '';
   const asstMsgId = `msg_${Date.now() + 1}_${Math.random().toString(36).substring(2, 7)}`;
   const identityFilter = createIdentityAwareStreamFilter();
+  const inlineImageFilter = createInlineImageStreamFilter(2);
+  const pendingInlineAttachments: Array<{
+    id: string;
+    fileName: string;
+    fileType: string;
+    fileSize: number;
+    fileUrl: string;
+  }> = [];
+  let inlineImageWork = Promise.resolve();
+  let inlineImagesUsedToday: number | null = null;
   const writeAssistantToken = (token: string) => {
     if (!token) return;
     fullAiResponse += token;
     if (!res.writableEnded && !res.destroyed) {
       res.write(`data: ${JSON.stringify({ type: 'token', content: token })}\n\n`);
     }
+  };
+  const processInlineImageEvents = (events: ReturnType<typeof inlineImageFilter.push>) => {
+    for (const event of events) {
+      inlineImageWork = inlineImageWork.then(async () => {
+        if (event.type === 'text') {
+          writeAssistantToken(event.content);
+          return;
+        }
+        if (abortController.signal.aborted) return;
+
+        let uploadedInlineFileUrl: string | null = null;
+        let createdInlineAttachmentId: string | null = null;
+        try {
+          if (user.plan === 'free') {
+            if (inlineImagesUsedToday === null) {
+              const startOfDay = new Date();
+              startOfDay.setUTCHours(0, 0, 0, 0);
+              const generatedToday = await listRecords('UserEventLog', [
+                filter('userId', user.id),
+                filter('event', 'image.generate'),
+                filter('createdAt', startOfDay.toISOString(), '>='),
+              ]);
+              inlineImagesUsedToday = generatedToday.length;
+            }
+            if (inlineImagesUsedToday >= 5) {
+              throw new Error('The daily image generation limit has been reached.');
+            }
+          }
+
+          const runtimeImageProvider = getRuntimeImageProvider();
+          const envImageKey = process.env.CLEANAPIS_IMAGE_API_KEY?.trim() || process.env.CLEANAPIS_API_KEY?.trim();
+          const imageKey = envImageKey || runtimeImageProvider?.apiKey || getCleanApisConfig().apiKey;
+          if (!imageKey) throw new Error('Image generation is not configured.');
+
+          const imageModel = await readAdminSetting(
+            'imageModel',
+            process.env.CLEANAPIS_IMAGE_MODEL?.trim() || 'cf/black-forest-labs/flux-1-schnell',
+          );
+          const imageApiBaseUrl = envImageKey
+            ? process.env.CLEANAPIS_BASE_URL?.trim() || getCleanApisConfig().baseUrl
+            : runtimeImageProvider?.baseUrl || getCleanApisConfig().baseUrl;
+          const imageEndpoint = process.env.CLEANAPIS_IMAGE_BASE_URL?.trim() || imageApiBaseUrl;
+          const imageController = new AbortController();
+          const imageTimeout = setTimeout(() => imageController.abort(), 45000);
+          const abortImageRequest = () => imageController.abort();
+          abortController.signal.addEventListener('abort', abortImageRequest, { once: true });
+
+          try {
+            const generated = await generateInlineImage({
+              configuredUrl: imageEndpoint,
+              apiKey: imageKey,
+              model: imageModel,
+              prompt: event.prompt,
+              signal: imageController.signal,
+            });
+            if (abortController.signal.aborted) return;
+
+            const extension = generated.mimeType === 'image/jpeg' ? 'jpg'
+              : generated.mimeType === 'image/webp' ? 'webp' : 'png';
+            const attachmentId = randomUUID();
+            createdInlineAttachmentId = attachmentId;
+            const fileName = `cintra-inline-${attachmentId}.${extension}`;
+            uploadedInlineFileUrl = await uploadLocalFile(
+              `images/${fileName}`,
+              generated.bytes,
+              generated.mimeType,
+              user.id,
+            );
+            if (abortController.signal.aborted) {
+              await cleanupLocalFile(uploadedInlineFileUrl, 'Could not clean up an aborted inline image');
+              return;
+            }
+            await createRecord('Attachment', {
+              id: attachmentId,
+              messageId: asstMsgId,
+              userId: user.id,
+              inlineImage: true,
+              fileName,
+              fileType: generated.mimeType,
+              fileSize: generated.bytes.length,
+              fileUrl: uploadedInlineFileUrl,
+            });
+            await usageRepo.increment(user.id, imageModel, 0);
+            recordUserEvent(user.id, 'image.generate', imageModel);
+            pendingInlineAttachments.push({
+              id: attachmentId,
+              fileName,
+              fileType: generated.mimeType,
+              fileSize: generated.bytes.length,
+              fileUrl: uploadedInlineFileUrl,
+            });
+            uploadedInlineFileUrl = null;
+            createdInlineAttachmentId = null;
+            if (user.plan === 'free') inlineImagesUsedToday = (inlineImagesUsedToday || 0) + 1;
+
+            const altText = event.prompt.replace(/[\[\]\\\r\n]+/g, ' ').slice(0, 180).trim() || 'Cintra instructional illustration';
+            writeAssistantToken(`\n\n![${altText}](/api/attachments/${attachmentId})\n\n`);
+          } finally {
+            clearTimeout(imageTimeout);
+            abortController.signal.removeEventListener('abort', abortImageRequest);
+          }
+        } catch (error) {
+          if (uploadedInlineFileUrl) {
+            await cleanupLocalFile(uploadedInlineFileUrl, 'Could not clean up an incomplete inline image');
+            if (createdInlineAttachmentId) {
+              try {
+                await records('Attachment').delete(createdInlineAttachmentId);
+              } catch (cleanupError) {
+                console.error('Could not remove an incomplete inline image attachment:', cleanupError);
+              }
+            }
+          }
+          if (abortController.signal.aborted) return;
+          console.warn('Inline illustration generation failed:', {
+            userId: user.id,
+            errorName: error instanceof Error ? error.name : 'UnknownError',
+          });
+          writeAssistantToken(/[\u0600-\u06FF]/u.test(message)
+            ? '\n\n_تعذّر إنشاء الصورة التوضيحية لهذه الخطوة._\n\n'
+            : '\n\n_The illustrative image for this step could not be generated._\n\n');
+        }
+      });
+    }
+  };
+  const cleanupPendingInlineImages = async () => {
+    await Promise.all(pendingInlineAttachments.map(async (attachment) => {
+      await cleanupLocalFile(attachment.fileUrl, 'Could not clean up an incomplete inline image');
+      try {
+        await records('Attachment').delete(attachment.id);
+      } catch (error) {
+        console.error('Could not remove an incomplete inline image attachment:', error);
+      }
+    }));
+    pendingInlineAttachments.length = 0;
   };
 
   await streamChatCompletion({
@@ -3702,10 +3851,21 @@ app.post('/api/chat/send', rateLimiter({
     customInstructions: user.customInstructions,
     thinkingMode,
     callbacks: {
-      onToken: (token: string) => writeAssistantToken(identityFilter.push(token)),
+      onToken: (token: string) => processInlineImageEvents(inlineImageFilter.push(identityFilter.push(token))),
       onFinish: async (finalText: string) => {
-        writeAssistantToken(identityFilter.finish());
-        if (!fullAiResponse && finalText) writeAssistantToken(replaceFalseIdentityClaims(finalText));
+        processInlineImageEvents(inlineImageFilter.push(identityFilter.finish()));
+        processInlineImageEvents(inlineImageFilter.finish());
+        await inlineImageWork;
+        if (abortController.signal.aborted) {
+          await cleanupPendingInlineImages();
+          if (!res.writableEnded && !res.destroyed) res.end();
+          return;
+        }
+        if (!fullAiResponse && finalText) {
+          processInlineImageEvents(inlineImageFilter.push(replaceFalseIdentityClaims(finalText)));
+          processInlineImageEvents(inlineImageFilter.finish());
+          await inlineImageWork;
+        }
         const textToSave = fullAiResponse || replaceFalseIdentityClaims(finalText);
         if (textToSave.trim()) {
           const savedAsstMsg = await messageRepo.create({
@@ -3716,7 +3876,6 @@ app.post('/api/chat/send', rateLimiter({
             model: selectedModel,
             tokens: estimateTokens(textToSave),
           });
-
           if (!res.writableEnded && !res.destroyed) {
             res.write(`data: ${JSON.stringify({
               type: 'done',
@@ -3726,6 +3885,7 @@ app.post('/api/chat/send', rateLimiter({
             })}\n\n`);
           }
         } else {
+          await cleanupPendingInlineImages();
           if (!res.writableEnded && !res.destroyed) {
             res.write(`data: ${JSON.stringify({ type: 'done', conversationId: activeConvId, messageId: asstMsgId })}\n\n`);
           }
@@ -3733,11 +3893,15 @@ app.post('/api/chat/send', rateLimiter({
         if (!res.writableEnded && !res.destroyed) res.end();
       },
       onError: (err) => {
-        writeAssistantToken(identityFilter.finish());
-        if (!res.writableEnded && !res.destroyed) {
-          res.write(`data: ${JSON.stringify({ type: 'error', error: err })}\n\n`);
-          res.end();
-        }
+        processInlineImageEvents(inlineImageFilter.push(identityFilter.finish()));
+        processInlineImageEvents(inlineImageFilter.finish());
+        void inlineImageWork.then(async () => {
+          await cleanupPendingInlineImages();
+          if (!res.writableEnded && !res.destroyed) {
+            res.write(`data: ${JSON.stringify({ type: 'error', error: err })}\n\n`);
+            res.end();
+          }
+        });
       },
     },
   });

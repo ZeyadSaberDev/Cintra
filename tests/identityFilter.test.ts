@@ -2,11 +2,22 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   createIdentityAwareStreamFilter,
+  createInlineImageStreamFilter,
   filterIdentityResponse,
   IDENTITY_RESPONSE,
   isIdentityOnlyQuestion,
   replaceFalseIdentityClaims,
+  type InlineImageStreamEvent,
 } from '../lib/ai/identityFilter.js';
+
+function mergeAdjacentText(events: InlineImageStreamEvent[]) {
+  return events.reduce<InlineImageStreamEvent[]>((merged, event) => {
+    const previous = merged[merged.length - 1];
+    if (event.type === 'text' && previous?.type === 'text') previous.content += event.content;
+    else merged.push(event);
+    return merged;
+  }, []);
+}
 
 test('recognizes direct identity questions without intercepting general questions', () => {
   for (const question of [
@@ -30,6 +41,35 @@ test('recognizes direct identity questions without intercepting general question
   }
 
   assert.match(IDENTITY_RESPONSE, /Cintra/);
+});
+
+test('extracts inline image markers across stream chunk boundaries without leaking them as text', () => {
+  const filter = createInlineImageStreamFilter();
+  const events = mergeAdjacentText([
+    ...filter.push('Step one. [[CINTRA_IM'),
+    ...filter.push('AGE: a clear diagram of the first step]] Step two.'),
+    ...filter.finish(),
+  ]);
+
+  assert.deepEqual(events, [
+    { type: 'text', content: 'Step one. ' },
+    { type: 'image', prompt: 'a clear diagram of the first step' },
+    { type: 'text', content: ' Step two.' },
+  ]);
+});
+
+test('limits inline image markers and removes incomplete internal markers at stream completion', () => {
+  const filter = createInlineImageStreamFilter(1);
+  const events = mergeAdjacentText([
+    ...filter.push('[[CINTRA_IMAGE: first]][[CINTRA_IMAGE: second]]'),
+    ...filter.push(' and [[CINTRA_IMAGE: unfinished'),
+    ...filter.finish(),
+  ]);
+
+  assert.deepEqual(events, [
+    { type: 'image', prompt: 'first' },
+    { type: 'text', content: ' and ' },
+  ]);
 });
 
 test('replaces false self-attribution and preserves ordinary company mentions', () => {
