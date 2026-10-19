@@ -157,8 +157,13 @@ function MessageItemComponent({
   );
   const messageTextWithoutCode = React.useMemo(() => stripGeneratedCodeBlocks(message.content), [message.content]);
   const contentBlocks = React.useMemo(
-    () => parseInteractiveOptions(normalizeMathDelimiters(messageTextWithoutCode)),
-    [messageTextWithoutCode],
+    () => {
+      const normalizedText = normalizeMathDelimiters(messageTextWithoutCode);
+      return message.isStreaming
+        ? [{ kind: 'markdown' as const, content: normalizedText }]
+        : parseInteractiveOptions(normalizedText);
+    },
+    [messageTextWithoutCode, message.isStreaming],
   );
   const markdownComponents = {
     code: ({ className, children, ...props }: React.ComponentProps<'code'>) => {
@@ -168,6 +173,11 @@ function MessageItemComponent({
         : <code dir="ltr" className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[0.9em]" {...props}>{children}</code>;
     },
     pre: () => null,
+    div: ({ className, children, ...props }: React.ComponentProps<'div'>) => (
+      className?.split(/\s+/u).includes('katex-display')
+        ? <div className="bayan-formula-card"><div className={className} {...props}>{children}</div></div>
+        : <div className={className} {...props}>{children}</div>
+    ),
     p: ({ children }: { children?: React.ReactNode }) => <p className="my-2">{children}</p>,
     li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
     strong: ({ children }: { children?: React.ReactNode }) => (
@@ -793,11 +803,11 @@ function MessageItemComponent({
                 </ReactMarkdown>
               )
             : (
-                <section key={`options-${blockIndex}`} className="my-4 space-y-4 rounded-2xl border border-neutral-200/80 bg-neutral-100/60 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.04]" aria-label={currentLang === 'ar' ? 'بطاقة خيارات تفاعلية' : 'Interactive options'}>
+                <section key={`options-${blockIndex}`} className="bayan-quiz-container my-4 space-y-4 rounded-2xl border border-neutral-200/80 bg-neutral-100/60 p-3 shadow-sm dark:border-neutral-800 dark:bg-white/[0.035] sm:p-4" aria-label={currentLang === 'ar' ? 'بطاقة خيارات تفاعلية' : 'Interactive options'}>
                   {block.questions.map((question, questionIndex) => {
                     const groupKey = `${message.id}:${blockIndex}:${questionIndex}`;
                     return (
-                      <fieldset key={groupKey} className="space-y-2.5">
+                      <fieldset key={groupKey} className="bayan-quiz-question space-y-2.5 rounded-2xl border border-neutral-200 bg-white/60 p-3 dark:border-neutral-800 dark:bg-neutral-950/35 sm:p-4">
                         <legend className="mb-2 flex items-start gap-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                           <span className="bayan-accent-soft flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs">{questionIndex + 1}</span>
                           {question.prompt}
@@ -805,7 +815,7 @@ function MessageItemComponent({
                         {question.options.map((option, optionIndex) => {
                           const selected = selectedOptionByQuestion[groupKey] === optionIndex;
                           return (
-                            <label key={`${groupKey}:${optionIndex}`} className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${selected ? 'bayan-accent-soft' : 'border-neutral-200/70 bg-white/70 hover:border-neutral-300 hover:bg-white dark:border-white/10 dark:bg-black/10 dark:hover:bg-white/[0.06]'}`}>
+                            <label key={`${groupKey}:${optionIndex}`} className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] ${selected ? 'border-emerald-500/40 bg-emerald-500/10 shadow-[0_0_0_2px_rgb(16_185_129/8%)] dark:border-emerald-400/40 dark:bg-emerald-400/10' : 'border-neutral-200/70 bg-white/70 hover:border-neutral-300 hover:bg-white hover:shadow-sm dark:border-neutral-800 dark:bg-black/10 dark:hover:bg-white/[0.06]'}`}>
                               <input
                                 type="radio"
                                 name={groupKey}
@@ -813,7 +823,7 @@ function MessageItemComponent({
                                 checked={selected}
                                 disabled={!onSendSuggestedReply}
                                 onChange={() => setSelectedOptionByQuestion((current) => ({ ...current, [groupKey]: optionIndex }))}
-                                className="mt-0.5 h-4 w-4 accent-[var(--bayan-accent)]"
+                                className="mt-0.5 h-4 w-4 accent-emerald-500"
                               />
                               <span className="min-w-0 flex-1">{option}</span>
                             </label>
@@ -827,7 +837,7 @@ function MessageItemComponent({
                       type="button"
                       disabled={!block.questions.some((_, questionIndex) => selectedOptionByQuestion[`${message.id}:${blockIndex}:${questionIndex}`] !== undefined)}
                       onClick={() => sendSelectedOptions(blockIndex, block.action || (currentLang === 'ar' ? 'إرسال الإجابة' : 'Submit answer'), block.questions)}
-                      className="bayan-accent-solid w-full rounded-full px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="w-full rounded-full bg-neutral-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:scale-[1.005] hover:bg-neutral-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200"
                     >
                       {block.action || (currentLang === 'ar' ? 'إرسال الإجابة' : 'Submit answer')}
                     </button>

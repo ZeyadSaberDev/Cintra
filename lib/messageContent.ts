@@ -17,10 +17,12 @@ export interface MarkdownBlock {
 export type MessageContentBlock = InteractiveOptionsBlock | MarkdownBlock;
 
 const questionPattern = /^\s*(?:#{1,4}\s*)?(?:\d+[.)、]\s+|(?:question|q|سؤال)\s*\d*\s*[:.)：-]\s*)(.+?)\s*$/iu;
-const optionPattern = /^\s*(?:[-*+]\s*)?\[(?:\s|x|X)\]\s*(.+?)\s*$/u;
+const optionPattern = /^\s*(?:[-*+•▪◦‣]\s*)?\[(?:\s|x|X)\]\s*(.+?)\s*$/u;
+const bulletOptionPattern = /^\s*[-*+•▪◦‣]\s+(.+?)\s*$/u;
 const radioPattern = /^\s*(?:○|◯|◉|●|⚪|🔘)\s*(.+?)\s*$/u;
 const actionPattern = /^\s*(?:[-*+]\s*)?(?:👉\s*)?(?:\*\*)?(?:button|زر)\s*[:：]\s*(.+?)(?:\*\*)?\s*$/iu;
 const knownActionPattern = /^\s*(?:👉\s*)?(?:\*\*)?(اشرح لي الخطوات|تأكيد الإجابة|تأكيد الاجابة|ابدأ الاختبار|تحقق من الإجابة|تحقق من الاجابة|إرسال الإجابة|ارسال الاجابة|explain the steps|confirm answer|submit answer|check answer|start quiz)(?:\*\*)?[.!؟]?\s*$/iu;
+const embeddedActionPattern = /(اشرح لي الخطوات|تأكيد الإجابة|تأكيد الاجابة|ابدأ الاختبار|تحقق من الإجابة|تحقق من الاجابة|إرسال الإجابة|ارسال الاجابة|explain the steps|confirm answer|submit answer|check answer|start quiz)/iu;
 
 function getQuestion(line: string): string | null {
   return questionPattern.exec(line)?.[1]?.trim() || null;
@@ -28,6 +30,7 @@ function getQuestion(line: string): string | null {
 
 function getOption(line: string): string | null {
   return optionPattern.exec(line)?.[1]?.trim()
+    || bulletOptionPattern.exec(line)?.[1]?.trim()
     || radioPattern.exec(line)?.[1]?.trim()
     || null;
 }
@@ -35,7 +38,10 @@ function getOption(line: string): string | null {
 function getAction(line: string): string | null {
   const explicit = actionPattern.exec(line)?.[1]?.trim();
   if (explicit) return explicit.replace(/\*\*/g, '');
-  return knownActionPattern.exec(line)?.[1]?.trim() || null;
+  return knownActionPattern.exec(line)?.[1]?.trim()
+    || knownActionPattern.exec(line.replace(/\*\*/g, ''))?.[1]?.trim()
+    || embeddedActionPattern.exec(line.replace(/\*\*/g, ''))?.[1]?.trim()
+    || null;
 }
 
 export function parseInteractiveOptions(content: string): MessageContentBlock[] {

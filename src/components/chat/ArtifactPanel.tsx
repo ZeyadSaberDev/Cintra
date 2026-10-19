@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Check, Code2, Copy, Download, FileJson2, FileText, Maximize2, Minimize2, PanelRightClose, Play, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -39,6 +40,7 @@ interface ArtifactPanelProps {
 
 export function ArtifactPanel({ artifacts, onClose, initialSelectedId }: ArtifactPanelProps) {
   const { currentLang } = useLanguage();
+  const reduceMotion = useReducedMotion();
   const isArabic = currentLang === 'ar';
   const [selectedId, setSelectedId] = useState(initialSelectedId || artifacts[0]?.id || '');
   const [tab, setTab] = useState<ArtifactTab>('code');
@@ -131,12 +133,14 @@ export function ArtifactPanel({ artifacts, onClose, initialSelectedId }: Artifac
       )}
 
       <div className="cintra-artifact-tabs flex min-h-11 items-center gap-1 border-b px-3">
-        <button type="button" onClick={() => setTab('code')} className={`cintra-artifact-view-tab inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs ${tab === 'code' ? 'is-selected' : ''}`}>
+        <button type="button" onClick={() => setTab('code')} className={`cintra-artifact-view-tab relative inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs ${tab === 'code' ? 'is-selected' : ''}`}>
           <Code2 size={13} />{isArabic ? 'الكود' : 'Code'}
+          {tab === 'code' && <motion.span layoutId="artifact-view-tab-indicator" className="cintra-artifact-tab-indicator absolute inset-x-2 -bottom-[8px] h-0.5 rounded-full" transition={reduceMotion ? { duration: 0.01 } : { type: 'spring', stiffness: 350, damping: 30 }} />}
         </button>
         {previewable && (
-          <button type="button" onClick={() => setTab('preview')} className={`cintra-artifact-view-tab inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs ${tab === 'preview' ? 'is-selected' : ''}`}>
+          <button type="button" onClick={() => setTab('preview')} className={`cintra-artifact-view-tab relative inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs ${tab === 'preview' ? 'is-selected' : ''}`}>
             <Play size={13} />{isArabic ? 'معاينة' : 'Preview'}
+            {tab === 'preview' && <motion.span layoutId="artifact-view-tab-indicator" className="cintra-artifact-tab-indicator absolute inset-x-2 -bottom-[8px] h-0.5 rounded-full" transition={reduceMotion ? { duration: 0.01 } : { type: 'spring', stiffness: 350, damping: 30 }} />}
           </button>
         )}
       </div>

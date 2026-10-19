@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ChevronDown, Search, Check } from 'lucide-react';
 import { ModelInfo } from '../../../lib/ai/provider';
 import { getModelCost } from '../../../lib/config/modelCosts';
@@ -21,6 +22,7 @@ interface ModelSelectorProps {
 
 export function ModelSelector({ selectedModel, onSelectModel, placement = 'below' }: ModelSelectorProps) {
   const { t } = useLanguage();
+  const reduceMotion = useReducedMotion();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -34,6 +36,18 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
     const margin = 8;
+    if (window.innerWidth <= 640) {
+      setMenuPosition({
+        position: 'fixed',
+        top: 'auto',
+        right: margin,
+        bottom: 'max(8px, env(safe-area-inset-bottom))',
+        left: margin,
+        width: `calc(100vw - ${margin * 2}px)`,
+        maxHeight: 'min(70dvh, 440px)',
+      });
+      return;
+    }
     const width = Math.min(340, window.innerWidth - margin * 2);
     const headerBottom = trigger.closest('header')?.getBoundingClientRect().bottom ?? rect.bottom;
     const availableHeight = placement === 'above'
@@ -138,8 +152,19 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
         <ChevronDown size={14} className="text-neutral-500 shrink-0" />
       </button>
 
-      {isOpen && menuPosition && createPortal(
-        <div ref={menuRef} data-placement={placement} style={menuPosition} className="bayan-model-menu rounded-xl shadow-xl border z-[100] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      {createPortal(
+        <AnimatePresence>
+        {isOpen && menuPosition && (
+        <motion.div
+          ref={menuRef}
+          data-placement={placement}
+          style={menuPosition}
+          initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: window.innerWidth <= 640 ? 24 : 10, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: window.innerWidth <= 640 ? 18 : 8, scale: 0.98 }}
+          transition={{ duration: reduceMotion ? 0.01 : 0.2, ease: [0.2, 0.8, 0.2, 1] }}
+          className="bayan-model-menu rounded-xl shadow-xl border z-[100] flex flex-col overflow-hidden"
+        >
           {/* Search Header */}
           <div className="bayan-model-menu-header p-2 border-b">
             <div className="bayan-model-menu-search flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs text-neutral-800">
@@ -206,7 +231,9 @@ export function ModelSelector({ selectedModel, onSelectModel, placement = 'below
               ))
             )}
           </div>
-        </div>,
+        </motion.div>
+        )}
+        </AnimatePresence>,
         document.body,
       )}
     </div>

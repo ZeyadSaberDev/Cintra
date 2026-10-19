@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ArrowUp, Paperclip, Square, X, FileText, Mic, BookOpen, Plus, Sparkles, GraduationCap, Lightbulb, ListChecks, Brain, Loader2, CircleCheck, CircleAlert, Globe2 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useBayanAlert } from '../../contexts/AlertContext';
@@ -83,6 +84,7 @@ export function ChatInput({
   onToggleThinking,
 }: ChatInputProps) {
   const { t, currentLang } = useLanguage();
+  const reduceMotion = useReducedMotion();
   const showAlert = useBayanAlert();
   const [text, setText] = useState('');
   const [featuresOpen, setFeaturesOpen] = useState(false);
@@ -724,8 +726,16 @@ export function ChatInput({
                 <Brain size={13} />
                 <span className="bayan-effort-label">{currentLang === 'ar' ? `الجهد: ${{ low: 'منخفض', medium: 'متوسط', high: 'مرتفع' }[reasoningEffort]}` : `Effort: ${reasoningEffort[0].toUpperCase()}${reasoningEffort.slice(1)}`}</span>
               </button>
+              <AnimatePresence>
               {effortOpen && (
-                <div role="menu" className="bayan-effort-menu absolute bottom-full left-0 z-50 mb-2 min-w-36 rounded-xl border border-neutral-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-neutral-900">
+                <motion.div
+                  role="menu"
+                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ duration: reduceMotion ? 0.01 : 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+                  className="bayan-effort-menu absolute bottom-full left-0 z-50 mb-2 min-w-36 rounded-xl border border-neutral-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-neutral-900"
+                >
                   {(['low', 'medium', 'high'] as const).map((effort) => (
                     <button
                       key={effort}
@@ -741,8 +751,9 @@ export function ChatInput({
                       {reasoningEffort === effort && <span aria-hidden="true">✓</span>}
                     </button>
                   ))}
-                </div>
+                </motion.div>
               )}
+              </AnimatePresence>
             </div>
             <div ref={featuresRef} className="relative shrink-0">
               <button

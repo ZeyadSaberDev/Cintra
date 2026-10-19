@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { VariableSizeList, ListChildComponentProps } from 'react-window';
 import { MessageItem, type ChatMessageDisplay, type FeedbackRating } from './MessageItem';
 import { EmptyState } from './EmptyState';
@@ -131,6 +132,7 @@ export function ConversationView({
   expanded = false,
 }: ConversationViewProps) {
   const { t, currentLang } = useLanguage();
+  const reduceMotion = useReducedMotion();
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<VariableSizeList>(null);
   const rowSizesRef = useRef(new Map<string, number>());
@@ -305,17 +307,23 @@ export function ConversationView({
         </div>
       )}
 
-      {showJumpToLatest && (
-        <button
-          type="button"
-          onClick={scrollToLatest}
-          className="bayan-jump-latest absolute bottom-4 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          aria-label={currentLang === 'ar' ? 'العودة إلى آخر رسالة' : 'Return to latest message'}
-          title={currentLang === 'ar' ? 'العودة إلى آخر رسالة' : 'Return to latest message'}
-        >
-          <ChevronDown size={18} aria-hidden="true" />
-        </button>
-      )}
+      <AnimatePresence>
+        {showJumpToLatest && (
+          <motion.button
+            type="button"
+            onClick={scrollToLatest}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.85 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.85 }}
+            transition={{ duration: reduceMotion ? 0.01 : 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+            className="bayan-jump-latest absolute bottom-4 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            aria-label={currentLang === 'ar' ? 'العودة إلى آخر رسالة' : 'Return to latest message'}
+            title={currentLang === 'ar' ? 'العودة إلى آخر رسالة' : 'Return to latest message'}
+          >
+            <ChevronDown size={18} aria-hidden="true" />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import React, { Suspense, useState, useEffect, useRef } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import { AuthCard } from './components/auth/AuthCard';
@@ -90,6 +91,7 @@ function ActionToast({
 }
 
 function Workspace() {
+  const reduceMotion = useReducedMotion();
   const showAlert = useBayanAlert();
   const {
     user, emailVerified, loading, logout, refreshUser, updateProfile,
@@ -1446,8 +1448,17 @@ function Workspace() {
               </button>
             </nav>
           )}
-          <div className="bayan-workspace-panes flex min-h-0 min-w-0 flex-1 flex-row gap-3">
-          <div dir={isRtl ? 'rtl' : 'ltr'} className={`bayan-chat-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[flex-basis] duration-300 ${artifactPanelOpen && artifactMobileView === 'preview' ? 'is-mobile-hidden' : ''}`}>
+          <motion.div
+            layout
+            transition={reduceMotion ? { duration: 0.01 } : { type: 'spring', stiffness: 200, damping: 25 }}
+            className="bayan-workspace-panes flex min-h-0 min-w-0 flex-1 flex-row gap-3"
+          >
+          <motion.div
+            layout
+            transition={reduceMotion ? { duration: 0.01 } : { type: 'spring', stiffness: 200, damping: 25 }}
+            dir={isRtl ? 'rtl' : 'ltr'}
+            className={`bayan-chat-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[flex-basis] duration-300 ${artifactPanelOpen && artifactMobileView === 'preview' ? 'is-mobile-hidden' : ''}`}
+          >
           {isHomeScreen ? (
             <section className="bayan-home-screen flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8 sm:px-8 sm:py-10">
               <div className="bayan-home-content w-full max-w-[896px]">
@@ -1532,9 +1543,17 @@ function Workspace() {
           </footer>
             </>
           )}
-          </div>
+          </motion.div>
+          <AnimatePresence initial={false}>
           {artifactPanelOpen && activeArtifacts.length > 0 && (
-            <div className={`bayan-artifact-pane min-h-0 min-w-0 ${artifactMobileView === 'chat' ? 'is-mobile-hidden' : ''}`}>
+            <motion.div
+              layout
+              initial={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 24 }}
+              transition={reduceMotion ? { duration: 0.01 } : { type: 'spring', stiffness: 200, damping: 25 }}
+              className={`bayan-artifact-pane min-h-0 min-w-0 ${artifactMobileView === 'chat' ? 'is-mobile-hidden' : ''}`}
+            >
               <ArtifactPanel
                 key={`${artifactPanelMessageId || 'generated-artifacts'}-${artifactPanelArtifactId || ''}`}
                 artifacts={activeArtifacts}
@@ -1544,9 +1563,10 @@ function Workspace() {
                   setArtifactMobileView('chat');
                 }}
               />
-            </div>
+            </motion.div>
           )}
-          </div>
+          </AnimatePresence>
+          </motion.div>
         </main>
       </div>
       {homeTaskMode && <HomeTaskDialog mode={homeTaskMode} onClose={() => setHomeTaskMode(null)} onSubmit={handleHomeTaskSubmit} />}
